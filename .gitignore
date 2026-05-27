@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Datasets (too large to commit)
+datasets/*.csv
+datasets/*.json
+datasets/*.txt
+!datasets/README.md
+
+# Model files (generated during training)
+*.pkl
+*.joblib
+*.model
+
+# Evaluation outputs
+evaluation/results/*.csv
+evaluation/results/*.json
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.out
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.blg
+*.bbl
+*.bcf
+*.run.xml
+docs/**/*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
