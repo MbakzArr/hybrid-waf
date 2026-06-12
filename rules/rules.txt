@@ -1,0 +1,34 @@
+# Hybrid WAF Detection Rules
+# Format: RULE_ID | CATEGORY | REGEX_PATTERN
+# Lines starting with # are comments and are ignored.
+# Categories: SQLi | XSS | PATH
+
+# ── SQL Injection ──────────────────────────────────────────────────────
+SQLi_001 | SQLi | (?i)(\bUNION\b[\s\S]{0,50}\bSELECT\b)
+SQLi_002 | SQLi | (?i)('\s*OR\s+'?1'?\s*=\s*'?1)
+SQLi_003 | SQLi | (?i)(--\s*$|#\s*$)
+SQLi_004 | SQLi | (?i)(\bDROP\b\s+\bTABLE\b)
+SQLi_005 | SQLi | (?i)(\bSELECT\b.{0,100}\bFROM\b)
+SQLi_006 | SQLi | (?i)(0x[0-9a-fA-F]{2,})
+SQLi_007 | SQLi | (?i)(\bINSERT\b\s+\bINTO\b)
+SQLi_008 | SQLi | (?i)(\bEXEC\b\s*\()
+
+# ── Cross-Site Scripting ───────────────────────────────────────────────
+XSS_001 | XSS | (?i)(<script[\s>\/])
+XSS_002 | XSS | (?i)(onerror\s*=)
+XSS_003 | XSS | (?i)(onload\s*=)
+XSS_004 | XSS | (?i)(javascript\s*:)
+XSS_005 | XSS | (?i)(<iframe[\s>])
+XSS_006 | XSS | (?i)(document\s*\.\s*cookie)
+XSS_007 | XSS | (?i)(alert\s*\()
+XSS_008 | XSS | (?i)(<img[^>]+onerror)
+
+# ── Path Traversal ─────────────────────────────────────────────────────
+PATH_001 | PATH | (\.\./)
+PATH_002 | PATH | (%2e%2e%2f)
+PATH_003 | PATH | (%2e%2e/)
+PATH_004 | PATH | (\.\.\\)
+PATH_005 | PATH | (?i)(/etc/passwd)
+PATH_006 | PATH | (?i)(/etc/shadow)
+PATH_007 | PATH | (?i)(win(dows)?[/\\]system32)
+PATH_008 | PATH | (?i)(/proc/self)

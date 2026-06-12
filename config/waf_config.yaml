@@ -1,0 +1,26 @@
+# Hybrid WAF Configuration
+# Mbadaliga, AB (219044112)
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  backend_url: "http://127.0.0.1:9090"
+
+detection:
+  mode: "hybrid"          # rule_only | ml_only | hybrid
+  threshold: 0.5          # ML probability cutoff
+  pipeline: "lr"          # lr (Pipeline 1) | rf (Pipeline 2)
+
+rules:
+  file: "rules/rules.txt"
+
+models:
+  lr_model_path: "models/lr_model.pkl"
+  rf_model_path: "models/rf_model.pkl"
+
+logging:
+  log_file: "logs/waf_events.csv"
+  alert_file: "logs/waf_alerts.log"
+
+performance:
+  latency_budget_ms: 10   # NFR01: max added latency per request
