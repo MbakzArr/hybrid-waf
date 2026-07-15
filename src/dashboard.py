@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""
+Module 6b: Monitoring Dashboard and Log Explorer (UC04 + UC07)
+Hybrid WAF - IT28X87 Honours Project
+Mbadaliga, AB (219044112)
+
+Run from project root:
+    python3 src/dashboard.py
+
+Then open: http://localhost:8081
+
+Two tabs:
+  Overview    (UC07) - live metric cards and block analysis charts
+  Log Explorer(UC04) - searchable, filterable table of all requests
+"""
+import csv
+import json
+import os
+import sys
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime
+
+_here = os.path.dirname(os.path.abspath(__file__))
+_root = _here if os.path.exists(os.path.join(_here, 'logs')) \
+        else os.path.dirname(_here)
+
+DASHBOARD_PORT = 8081
+LOG_FILE = os.path.join(_root, 'logs', 'detection_log.csv')
+
+
+def read_rows(log_path: str) -> list:
+    if not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, 'r', newline='') as f:
+            return list(csv.DictReader(f))
+    except Exception:
+        return []
+
+
+def compute_stats(rows: list) -> dict:
+    stats = {
+        "total": len(rows),
+        "blocked": 0, "allowed": 0,
+        "block_rate": "0.0%",
+        "by_category": {"SQLi": 0, "XSS": 0, "PATH": 0},
+        "by_trigger": {"Case A": 0, "Case B": 0, "Both agree": 0},
+        "mode": "hybrid",
+        "last_updated": datetime.now().strftime("%H:%M:%S"),
+    }
+    for row in rows:
+        action = row.get("action", "ALLOW")
+        if action == "BLOCK":
+            stats["blocked"] += 1
+            cat = row.get("rule_category", "")
+            if cat in stats["by_category"]:
+                stats["by_category"][cat] += 1
+            reason = row.get("reason", "")
+            if "Case A" in reason:
+                stats["by_trigger"]["Case A"] += 1
+            elif "Case B" in reason:
+                stats["by_trigger"]["Case B"] += 1
+            elif "Both agree" in reason:
+                stats["by_trigger"]["Both agree"] += 1
+        else:
+            stats["allowed"] += 1
+        if row.get("mode"):
+            stats["mode"] = row["mode"]
+    if stats["total"] > 0:
+        stats["block_rate"] = \
+            f"{100*stats['blocked']/stats['total']:.1f}%"
+    return stats
+
+
+PAGE = r"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<title>Hybrid WAF Console</title>
+<style>
+:root{--bg:#0d1420;--panel:#16202e;--p2:#1c2836;--border:#263445;
+--text:#dfe6ee;--muted:#7d92a8;--blue:#3d8bcd;--green:#3fb968;
+--red:#e05555;--amber:#e0a838;--purple:#b45ec4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);
+color:var(--text);padding:20px;font-size:14px;}
+.wrap{max-width:1200px;margin:0 auto;}
+.header{display:flex;justify-content:space-between;align-items:center;
+background:linear-gradient(135deg,#002a52,#013b6e);padding:16px 24px;
+border-radius:10px;margin-bottom:16px;}
+.header h1{font-size:1.3em;font-weight:600;}
+.header .sub{font-size:.75em;color:#9fc4e6;margin-top:2px;}
+.live{display:flex;align-items:center;gap:7px;font-size:.78em;color:#9fc4e6;}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--green);
+box-shadow:0 0 7px var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.status{display:flex;gap:24px;background:var(--panel);padding:10px 20px;
+border-radius:7px;margin-bottom:14px;font-size:.83em;border:1px solid var(--border);}
+.status span{color:var(--muted);}
+.status strong{color:var(--text);margin-left:5px;}
+.tabs{display:flex;gap:3px;margin-bottom:14px;}
+.tab{padding:9px 20px;background:var(--panel);border:1px solid var(--border);
+border-radius:8px 8px 0 0;cursor:pointer;color:var(--muted);font-size:.88em;}
+.tab.active{background:var(--p2);color:var(--blue);
+border-bottom:2px solid var(--blue);font-weight:600;}
+.view{display:none;}.view.active{display:block;}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+.card{background:var(--panel);padding:20px;border-radius:9px;
+border:1px solid var(--border);position:relative;overflow:hidden;}
+.card::before{content:'';position:absolute;left:0;top:0;width:4px;height:100%;}
+.card.total::before{background:var(--blue);}
+.card.allowed::before{background:var(--green);}
+.card.blocked::before{background:var(--red);}
+.card.rate::before{background:var(--amber);}
+.card .num{font-size:2.1em;font-weight:700;line-height:1;}
+.card .lbl{font-size:.78em;color:var(--muted);margin-top:7px;
+text-transform:uppercase;letter-spacing:.5px;}
+.card.total .num{color:var(--blue);}
+.card.allowed .num{color:var(--green);}
+.card.blocked .num{color:var(--red);}
+.card.rate .num{color:var(--amber);}
+.panel-box{background:var(--panel);border-radius:9px;
+border:1px solid var(--border);margin-bottom:16px;overflow:hidden;}
+.panel-head{padding:12px 18px;background:var(--p2);font-weight:600;
+font-size:.9em;border-bottom:1px solid var(--border);}
+.panel-body{padding:18px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+.chart-title{font-size:.8em;color:var(--muted);margin-bottom:10px;
+text-transform:uppercase;letter-spacing:.4px;}
+.bar-row{display:flex;align-items:center;margin-bottom:9px;font-size:.86em;}
+.bar-lbl{width:90px;color:var(--muted);}
+.bar-track{flex:1;height:20px;background:var(--bg);border-radius:3px;
+overflow:hidden;margin:0 10px;}
+.bar-fill{height:100%;border-radius:3px;transition:width .5s ease;min-width:2px;}
+.bar-val{width:28px;text-align:right;font-weight:600;}
+.controls{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap;}
+.controls input,.controls select{background:var(--panel);
+border:1px solid var(--border);color:var(--text);padding:8px 12px;
+border-radius:6px;font-size:.86em;font-family:inherit;}
+.controls input{flex:1;min-width:180px;}
+.controls input:focus,.controls select:focus{outline:none;border-color:var(--blue);}
+.tbl-wrap{background:var(--panel);border-radius:9px;
+border:1px solid var(--border);overflow:hidden;}
+table{width:100%;border-collapse:collapse;font-size:.82em;}
+thead th{background:var(--p2);padding:11px 12px;text-align:left;
+color:var(--muted);font-weight:600;position:sticky;top:0;
+cursor:pointer;user-select:none;}
+thead th:hover{color:var(--text);}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--border);
+font-family:'Consolas',monospace;}
+tbody tr:hover{background:var(--p2);}
+.tbl-scroll{max-height:500px;overflow-y:auto;}
+.badge{display:inline-block;padding:2px 8px;border-radius:3px;
+font-size:.8em;font-weight:600;}
+.b-block{background:rgba(224,85,85,.18);color:#ff8080;}
+.b-allow{background:rgba(63,185,104,.18);color:#6fd995;}
+.b-sqli{background:rgba(224,85,85,.15);color:#ff9090;}
+.b-xss{background:rgba(224,168,56,.15);color:#ffc860;}
+.b-path{background:rgba(63,185,104,.15);color:#7fd9a5;}
+.b-none{color:var(--muted);}
+.empty{text-align:center;color:var(--muted);padding:36px;font-style:italic;}
+.footer{text-align:center;font-size:.74em;color:#556677;margin-top:20px;}
+</style></head><body>
+<div class="wrap">
+<div class="header">
+  <div>
+    <h1>Hybrid WAF Console</h1>
+    <div class="sub">IT28X87 Honours Project &mdash; Mbadaliga, AB (219044112)</div>
+  </div>
+  <div class="live">
+    <span class="dot"></span>
+    <span>Live &mdash; refreshed <span id="upd">--:--:--</span></span>
+  </div>
+</div>
+<div class="status">
+  <div><span>Mode:</span><strong id="s-mode">hybrid</strong></div>
+  <div><span>Pipeline:</span><strong>lr</strong></div>
+  <div><span>Threshold:</span><strong>0.5</strong></div>
+  <div><span>Log rows:</span><strong id="s-rows">0</strong></div>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="showView('overview',this)">Overview</div>
+  <div class="tab" onclick="showView('logs',this)">Log Explorer</div>
+</div>
+<div id="overview" class="view active">
+  <div class="cards">
+    <div class="card total"><div class="num" id="c-total">0</div><div class="lbl">Total Requests</div></div>
+    <div class="card allowed"><div class="num" id="c-allowed">0</div><div class="lbl">Allowed</div></div>
+    <div class="card blocked"><div class="num" id="c-blocked">0</div><div class="lbl">Blocked</div></div>
+    <div class="card rate"><div class="num" id="c-rate">0%</div><div class="lbl">Block Rate</div></div>
+  </div>
+  <div class="panel-box">
+    <div class="panel-head">Block Analysis</div>
+    <div class="panel-body two-col">
+      <div><div class="chart-title">By Attack Category</div><div id="cat-bars"></div></div>
+      <div><div class="chart-title">By Trigger Type</div><div id="trig-bars"></div></div>
+    </div>
+  </div>
+</div>
+<div id="logs" class="view">
+  <div class="controls">
+    <input type="text" id="search" placeholder="Search path, IP, rule, reason..." oninput="renderTable()">
+    <select id="f-action" onchange="renderTable()">
+      <option value="">All actions</option>
+      <option value="BLOCK">Blocked only</option>
+      <option value="ALLOW">Allowed only</option>
+    </select>
+    <select id="f-cat" onchange="renderTable()">
+      <option value="">All categories</option>
+      <option value="SQLi">SQLi</option>
+      <option value="XSS">XSS</option>
+      <option value="PATH">Path Traversal</option>
+    </select>
+  </div>
+  <div class="tbl-wrap">
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr>
+          <th onclick="sortBy('timestamp')">Time</th>
+          <th onclick="sortBy('source_ip')">Source IP</th>
+          <th onclick="sortBy('method')">Method</th>
+          <th onclick="sortBy('path')">Path</th>
+          <th onclick="sortBy('action')">Action</th>
+          <th onclick="sortBy('rule_category')">Category</th>
+          <th onclick="sortBy('rule_id')">Rule</th>
+          <th onclick="sortBy('ml_score')">ML Score</th>
+        </tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+      <div id="log-empty" class="empty" style="display:none;">No matching log entries</div>
+    </div>
+  </div>
+</div>
+<div class="footer">Hybrid WAF Console &mdash; auto-refreshes every 5 seconds</div>
+</div>
+<script>
+let allRows=[],sortField='timestamp',sortDesc=true;
+function showView(id,el){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');el.classList.add('active');
+}
+function bar(label,value,max,cls){
+  const pct=max>0?(value/max*100):0;
+  return`<div class="bar-row"><span class="bar-lbl">${label}</span>
+  <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:var(--${cls})"></div></div>
+  <span class="bar-val">${value}</span></div>`;
+}
+function renderOverview(s){
+  document.getElementById('c-total').textContent=s.total;
+  document.getElementById('c-allowed').textContent=s.allowed;
+  document.getElementById('c-blocked').textContent=s.blocked;
+  document.getElementById('c-rate').textContent=s.block_rate;
+  document.getElementById('s-mode').textContent=s.mode;
+  document.getElementById('s-rows').textContent=s.total;
+  document.getElementById('upd').textContent=s.last_updated;
+  const cat=s.by_category,cMax=Math.max(cat.SQLi,cat.XSS,cat.PATH,1);
+  document.getElementById('cat-bars').innerHTML=
+    bar('SQLi',cat.SQLi,cMax,'red')+bar('XSS',cat.XSS,cMax,'amber')+bar('Path Trav',cat.PATH,cMax,'green');
+  const tr=s.by_trigger,tMax=Math.max(tr['Case A'],tr['Case B'],tr['Both agree'],1);
+  document.getElementById('trig-bars').innerHTML=
+    bar('Case A',tr['Case A'],tMax,'blue')+bar('Case B',tr['Case B'],tMax,'purple')+bar('Both agree',tr['Both agree'],tMax,'red');
+}
+function catBadge(cat){
+  if(cat==='SQLi')return'<span class="badge b-sqli">SQLi</span>';
+  if(cat==='XSS')return'<span class="badge b-xss">XSS</span>';
+  if(cat==='PATH')return'<span class="badge b-path">Path</span>';
+  return'<span class="b-none">-</span>';
+}
+function renderTable(){
+  const q=document.getElementById('search').value.toLowerCase();
+  const fa=document.getElementById('f-action').value;
+  const fc=document.getElementById('f-cat').value;
+  let rows=allRows.filter(r=>{
+    if(fa&&r.action!==fa)return false;
+    if(fc&&r.rule_category!==fc)return false;
+    if(q){const hay=`${r.path||''} ${r.source_ip||''} ${r.rule_id||''} ${r.reason||''} ${r.method||''}`.toLowerCase();if(!hay.includes(q))return false;}
+    return true;
+  });
+  rows.sort((a,b)=>{
+    let va=a[sortField]||'',vb=b[sortField]||'';
+    if(sortField==='ml_score'){va=parseFloat(va)||0;vb=parseFloat(vb)||0;}
+    if(va<vb)return sortDesc?1:-1;if(va>vb)return sortDesc?-1:1;return 0;
+  });
+  const body=document.getElementById('log-body');
+  const empty=document.getElementById('log-empty');
+  if(!rows.length){body.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  body.innerHTML=rows.map(r=>{
+    const t=(r.timestamp||'').replace('T',' ').substring(0,19);
+    const action=r.action==='BLOCK'?'<span class="badge b-block">BLOCK</span>':'<span class="badge b-allow">ALLOW</span>';
+    const rule=(r.rule_id&&r.rule_id!=='NONE')?r.rule_id:'<span class="b-none">-</span>';
+    const score=parseFloat(r.ml_score||0).toFixed(3);
+    const sc=parseFloat(r.ml_score||0)>=0.5?'var(--red)':'var(--muted)';
+    return`<tr><td>${t}</td><td>${r.source_ip||''}</td><td>${r.method||''}</td><td>${r.path||''}</td><td>${action}</td><td>${catBadge(r.rule_category)}</td><td>${rule}</td><td style="color:${sc}">${score}</td></tr>`;
+  }).join('');
+}
+function sortBy(f){if(sortField===f)sortDesc=!sortDesc;else{sortField=f;sortDesc=true;}renderTable();}
+async function refresh(){
+  try{
+    const res=await fetch('/api/data');
+    const data=await res.json();
+    allRows=data.rows;renderOverview(data.stats);renderTable();
+  }catch(e){console.error('refresh failed',e);}
+}
+refresh();setInterval(refresh,5000);
+</script></body></html>"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/data":
+            rows = read_rows(LOG_FILE)
+            stats = compute_stats(rows)
+            body = json.dumps({"stats": stats, "rows": rows}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(PAGE.encode())
+
+    def log_message(self, *args):
+        pass  # keep console clean during demo
+
+
+def main():
+    print(f"[Dashboard] Hybrid WAF Console")
+    print(f"[Dashboard] http://localhost:{DASHBOARD_PORT}")
+    print(f"[Dashboard] Log: {LOG_FILE}")
+    print(f"[Dashboard] Ctrl+C to stop\n")
+    server = HTTPServer(("0.0.0.0", DASHBOARD_PORT), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Dashboard] Stopped.")
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
