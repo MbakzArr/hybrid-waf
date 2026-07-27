@@ -159,6 +159,27 @@ font-size:.8em;font-weight:600;}
 .b-none{color:var(--muted);}
 .empty{text-align:center;color:var(--muted);padding:36px;font-style:italic;}
 .footer{text-align:center;font-size:.74em;color:#556677;margin-top:20px;}
+
+.link{color:var(--blue);cursor:pointer;text-decoration:underline;}
+tbody tr{cursor:pointer;}
+.ov{position:fixed;inset:0;background:rgba(3,8,15,.66);display:none;
+align-items:center;justify-content:center;padding:20px;z-index:50;}
+.ov.show{display:flex;}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+max-width:640px;width:100%;max-height:86vh;overflow:auto;}
+.modal-head{display:flex;justify-content:space-between;align-items:center;
+padding:14px 18px;background:var(--p2);border-bottom:1px solid var(--border);
+border-radius:10px 10px 0 0;}
+.modal-head h3{font-size:1em;font-weight:600;}
+.modal-x{cursor:pointer;color:var(--muted);font-size:1.35em;line-height:1;}
+.modal-body{padding:18px;}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;font-size:.86em;margin-bottom:12px;}
+.kv .k{color:var(--muted);}
+.payload-box{background:var(--bg);border:1px solid var(--border);border-radius:6px;
+padding:11px;font-family:'Consolas',monospace;font-size:.82em;word-break:break-all;color:var(--text);}
+.reason-box{background:rgba(224,168,56,.10);border:1px solid rgba(224,168,56,.35);
+border-radius:6px;padding:11px;font-size:.86em;margin-top:6px;line-height:1.5;}
+.sec{font-size:.76em;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 7px;}
 </style></head><body>
 <div class="wrap">
 <div class="header">
@@ -223,6 +244,7 @@ font-size:.8em;font-weight:600;}
           <th onclick="sortBy('rule_category')">Category</th>
           <th onclick="sortBy('rule_id')">Rule</th>
           <th onclick="sortBy('ml_score')">ML Score</th>
+          <th>Details</th>
         </tr></thead>
         <tbody id="log-body"></tbody>
       </table>
@@ -230,10 +252,17 @@ font-size:.8em;font-weight:600;}
     </div>
   </div>
 </div>
+<div id="ov" class="ov" onclick="if(event.target===this)closeDetail()">
+  <div class="modal">
+    <div class="modal-head"><h3 id="m-title">Request detail</h3>
+      <span class="modal-x" onclick="closeDetail()">&times;</span></div>
+    <div class="modal-body" id="m-body"></div>
+  </div>
+</div>
 <div class="footer">Hybrid WAF Console &mdash; auto-refreshes every 5 seconds</div>
 </div>
 <script>
-let allRows=[],sortField='timestamp',sortDesc=true;
+let allRows=[],renderedRows=[],sortField='timestamp',sortDesc=true;
 function showView(id,el){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -266,6 +295,38 @@ function catBadge(cat){
   if(cat==='PATH')return'<span class="badge b-path">Path</span>';
   return'<span class="b-none">-</span>';
 }
+
+function esc(x){return (x==null?'':String(x)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function openDetail(i){
+  const r=renderedRows[i]; if(!r) return;
+  const s=parseFloat(r.ml_score||0).toFixed(4);
+  const blocked=r.action==='BLOCK';
+  const badge=blocked?'<span class="badge b-block">BLOCK</span>':'<span class="badge b-allow">ALLOW</span>';
+  let why=r.reason||'';
+  if(blocked) why+=`  (ML score ${s}, threshold 0.5)`;
+  else why=`No rule matched and the ML score ${s} is below the 0.5 threshold.`;
+  const feats=[['F1 length',r.F1],['F2 special chars',r.F2],['F3 sql keywords',r.F3],
+               ['F4 script flag',r.F4],['F5 traversal',r.F5],['F6 entropy',r.F6]];
+  let fv='';
+  for(const [k,v] of feats){ if(v!==undefined) fv+=`<div class="k">${k}</div><div>${esc(v)}</div>`; }
+  document.getElementById('m-title').textContent = blocked?'Blocked request':'Allowed request';
+  document.getElementById('m-body').innerHTML =
+    `<div class="kv">
+       <div class="k">Time</div><div>${esc((r.timestamp||'').replace('T',' ').substring(0,19))}</div>
+       <div class="k">Action</div><div>${badge} ${catBadge(r.rule_category)}</div>
+       <div class="k">Method</div><div>${esc(r.method||'')}</div>
+       <div class="k">Rule</div><div>${esc(r.rule_id||'NONE')}</div>
+       <div class="k">ML score</div><div>${s}</div>
+     </div>
+     <div class="sec">Payload</div>
+     <div class="payload-box">${esc(r.path||'')}</div>
+     <div class="sec">Why this decision</div>
+     <div class="reason-box">${esc(why)}</div>
+     <div class="sec">Feature vector</div>
+     <div class="kv">${fv}</div>`;
+  document.getElementById('ov').classList.add('show');
+}
+function closeDetail(){document.getElementById('ov').classList.remove('show');}
 function renderTable(){
   const q=document.getElementById('search').value.toLowerCase();
   const fa=document.getElementById('f-action').value;
@@ -285,13 +346,14 @@ function renderTable(){
   const empty=document.getElementById('log-empty');
   if(!rows.length){body.innerHTML='';empty.style.display='block';return;}
   empty.style.display='none';
-  body.innerHTML=rows.map(r=>{
+  renderedRows=rows;
+  body.innerHTML=rows.map((r,i)=>{
     const t=(r.timestamp||'').replace('T',' ').substring(0,19);
     const action=r.action==='BLOCK'?'<span class="badge b-block">BLOCK</span>':'<span class="badge b-allow">ALLOW</span>';
     const rule=(r.rule_id&&r.rule_id!=='NONE')?r.rule_id:'<span class="b-none">-</span>';
     const score=parseFloat(r.ml_score||0).toFixed(3);
     const sc=parseFloat(r.ml_score||0)>=0.5?'var(--red)':'var(--muted)';
-    return`<tr><td>${t}</td><td>${r.source_ip||''}</td><td>${r.method||''}</td><td>${r.path||''}</td><td>${action}</td><td>${catBadge(r.rule_category)}</td><td>${rule}</td><td style="color:${sc}">${score}</td></tr>`;
+    return`<tr onclick="openDetail(${i})"><td>${t}</td><td>${r.source_ip||''}</td><td>${r.method||''}</td><td>${r.path||''}</td><td>${action}</td><td>${catBadge(r.rule_category)}</td><td>${rule}</td><td style="color:${sc}">${score}</td><td><span class="link">view</span></td></tr>`;
   }).join('');
 }
 function sortBy(f){if(sortField===f)sortDesc=!sortDesc;else{sortField=f;sortDesc=true;}renderTable();}
