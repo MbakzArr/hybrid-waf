@@ -6,3 +6,4 @@ logs/*.csv
 datasets/
 *.zip
 .DS_Store
+data/
