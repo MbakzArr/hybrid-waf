@@ -32,3 +32,21 @@ PATH_005 | PATH | (?i)(/etc/passwd)
 PATH_006 | PATH | (?i)(/etc/shadow)
 PATH_007 | PATH | (?i)(win(dows)?[/\\]system32)
 PATH_008 | PATH | (?i)(/proc/self)
+
+# ── SQL Injection (extended) ─────────────────────────────────────────
+SQLi_009 | SQLi | (?i)(\bSLEEP\s*\(|\bWAITFOR\s+DELAY\b|\bBENCHMARK\s*\()
+SQLi_010 | SQLi | (?i)(\bAND\b\s*'?1'?\s*=\s*'?1|\bOR\b\s+1\s*=\s*1\b)
+SQLi_011 | SQLi | (?i)(\binformation_schema\b)
+SQLi_012 | SQLi | (?i)(\bCONCAT\s*\(|\bCHAR\s*\(\s*\d)
+
+# ── Cross-Site Scripting (extended) ──────────────────────────────────
+XSS_009 | XSS | (?i)(<svg[\s>]|<body[^>]+onload)
+XSS_010 | XSS | (?i)(expression\s*\(|String\.fromCharCode\s*\()
+XSS_011 | XSS | (?i)(<object[\s>]|<embed[\s>])
+XSS_012 | XSS | (?i)(\beval\s*\(|on(focus|mouseover|mouseout)\s*=)
+
+# ── Path Traversal (extended) ────────────────────────────────────────
+PATH_009 | PATH | (%25(2e|2E)%25(2e|2E)%25(2f|2F))
+PATH_010 | PATH | (%00)
+PATH_011 | PATH | (?i)(boot\.ini|win\.ini)
+PATH_012 | PATH | (?i)(\.git/config|\.env\b|\.htaccess)
