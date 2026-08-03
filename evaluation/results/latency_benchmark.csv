@@ -1,0 +1,4 @@
+stage,mean_ms,median_ms,p95_ms,min_ms,max_ms
+Rule engine (M3),0.0323,0.0246,0.0796,0.0076,0.358
+Classifier (M4),3.2923,3.2506,3.6627,2.6332,15.8772
+Full pipeline (M2-M5),3.3317,3.2847,3.7157,2.6513,16.0406
