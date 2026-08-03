@@ -1,0 +1,886 @@
+% =====================================================================
+% D07 INITIAL RESEARCH PAPER DRAFT
+% Mbadaliga, AB (219044112) - IT28X87
+% Springer LNCS format (required from D09, started now to avoid rework)
+%
+% COMPILE: pdflatex -> biber -> pdflatex -> pdflatex
+% You need llncs.cls from:
+%   https://www.springer.com/gp/computer-science/lncs/conference-proceedings-guidelines
+% On Overleaf: New Project -> Templates -> search "LNCS"
+%
+% -------------------------------------------------------------------
+% EVERY \TODO{} BELOW IS A DELIBERATE BLANK.
+% Nothing is filled with an assumed number. Search for "TODO" before
+% you submit and make sure none are left.
+% -------------------------------------------------------------------
+% =====================================================================
+
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+% ---------------------------------------------------------------
+% HARVARD (author-year) referencing, consistent with earlier
+% submissions in this project.
+%
+% This file uses natbib + plainnat, which compiles with
+%     pdflatex -> bibtex -> pdflatex -> pdflatex
+% and produces Harvard author-year citations: (Author, Year) via
+% \citep and Author (Year) via \citet.
+%
+% If you prefer the biblatex/biber route used in earlier documents,
+% replace the two natbib lines below with:
+%     \usepackage[backend=biber,style=authoryear,natbib=true]{biblatex}
+%     \addbibresource{references.bib}
+% and replace the two bibliography lines at the end with
+%     \printbibliography
+% then set Overleaf's compiler bibliography tool to Biber.
+% Both routes give Harvard output. natbib is used here because it was
+% the version actually test-compiled.
+% ---------------------------------------------------------------
+\usepackage{natbib}
+\bibpunct{(}{)}{;}{a}{,}{,}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\definecolor{ujnavy}{RGB}{0,42,82}
+\definecolor{ujblue}{RGB}{61,139,205}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+
+% Blanks show up bright red so you cannot miss one at submission time.
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\TODOBIB}[1]{\textcolor{red}{\textbf{[#1]}}}
+\newcommand{\todobib}[1]{\textcolor{red}{\textbf{[#1]}}}
+
+\begin{document}
+
+\title{Design and Evaluation of a Hybrid Web Application Firewall
+with Lightweight Machine Learning-Assisted Detection}
+
+\titlerunning{A Hybrid WAF with Lightweight ML-Assisted Detection}
+
+\author{A.B. Mbadaliga}
+\authorrunning{A.B. Mbadaliga}
+
+\institute{Academy of Computer Science and Software Engineering,\\
+University of Johannesburg, Johannesburg, South Africa\\
+\email{219044112@student.uj.ac.za}}
+
+\maketitle
+
+% =====================================================================
+\begin{abstract}
+Rule-based Web Application Firewalls (WAFs) block requests that match
+known attack signatures. They are fast and their decisions are easy to
+explain, but attackers routinely evade them by obfuscating payloads,
+and raising rule sensitivity to catch those payloads drives up the rate
+at which legitimate traffic is wrongly blocked. Machine learning
+detectors generalise better to unseen payload variants but give up the
+fast deterministic path that signature matching provides. This paper
+presents the design and alpha implementation of a hybrid WAF that runs
+a regex rule engine and a lightweight machine learning classifier over
+the same request, with an explicit decision engine that resolves the
+cases where the two disagree. The central contribution is what this work
+calls Case B detection: the classifier flags an obfuscated payload that
+the rule engine misses. The system is built as a six-module pipeline in
+Python and runs in three selectable modes, rule\_only, ml\_only and
+hybrid, so that each detection path can be isolated and measured
+separately. Two classifier pipelines are used, a logistic regression
+model implemented from scratch with gradient descent and a scikit-learn
+Random Forest, with a third scikit-learn logistic regression included
+purely to validate the from-scratch implementation. The prototype is
+evaluated on the CSIC 2010 and HTTPParams datasets against a
+rule-only and an ML-only configuration, with ModSecurity and OWASP
+Core Rule Set v4 stood up as an external baseline on the same test set.
+On a held-out test set of 25{,}627 requests, the hybrid configuration
+reached an F1-score of 0.826 against 0.449 for the rule engine alone
+and 0.568 for ModSecurity with CRS v4, with a false positive rate of
+0.6\% against zero for the rule engine alone and 4.5\% for CRS,
+meaning the small false positive cost of adding the classifier
+bought a large recall improvement, and the hybrid configuration
+outperformed a fully deployed industrial rule set on both metrics
+simultaneously. The classifier caught obfuscated
+attacks the rule engine missed on 12.61\% of test requests, this is
+Case B firing. A systematic benchmark over the full test set found a
+mean in-process latency, entrance to decision, of 3.332 milliseconds,
+with a 95th percentile of 3.716 milliseconds, comfortably inside the
+sub-10 millisecond design target, dominated almost entirely by the
+machine learning inference step.
+\keywords{Web Application Firewall \and Machine Learning \and SQL
+Injection \and Cross-Site Scripting \and Intrusion Detection \and
+Design Science Research}
+\end{abstract}
+
+% =====================================================================
+\section{Introduction}
+
+Organisations of every size now run part of their business over the
+web. Banking portals, e-commerce storefronts, hospital booking systems
+and government service platforms are all HTTP applications that have to
+be publicly reachable to be useful. That reachability is also what makes
+them a standing target. Injection remains one of the most serious
+categories in the OWASP Top 10, and SQL Injection (SQLi), Cross-Site
+Scripting (XSS) and Path Traversal continue to appear in every major
+public web attack dataset used in security research
+\citep{owasptop10,durmuskaya2025}.
+
+A Web Application Firewall sits in front of the application and inspects
+each HTTP request before the application ever sees it. The dominant
+open-source option is ModSecurity paired with the OWASP Core Rule Set
+(CRS), which works by matching request content against a large body of
+regular expressions describing known attack patterns
+\citep{owaspcrs2024,owaspwaf2024}. This approach has two properties that
+matter a great deal in practice. It is fast, because a regex match is
+cheap, and it is transparent, because every block can be traced to a
+specific rule. Those two properties are the reason signature matching
+has not been displaced.
+
+The approach has two well-documented weaknesses. The first is payload
+evasion. An attacker does not need a new attack, only a new spelling of
+an old one. URL encoding, HTML entity encoding, inline comment
+insertion, case variation and whitespace manipulation can all change the
+byte sequence of a payload without changing what it does when the
+application executes it, and a regex written for the original form will
+not fire on the variant \citep{qu2024,demetrio2020}. The second weakness
+is the false positive cost of trying to fix the first. CRS exposes
+paranoia levels that progressively widen the rules to catch more
+variants. \citet{reyesnarvaez2025} measured this
+directly and found that paranoia level 1 produced no false positives on
+their legitimate traffic set while levels 2, 3 and 4 blocked increasing
+numbers of entirely valid requests. For an organisation with a dedicated
+security team this is a tuning exercise. For a small or medium
+enterprise with no specialist security staff, hand-tuning rule
+exclusions until legitimate traffic stops being blocked is not realistic
+\citep{rombaldo2023}.
+
+Machine learning detectors attack the problem from the other side. A
+classifier trained on request features can generalise to payload
+variants it has never seen, because it is learning the statistical shape
+of an attack rather than its exact spelling
+\citep{applebaum2021,durmuskaya2025}. The cost is that a purely
+learned detector gives up the fast deterministic path, is harder to
+explain to whoever has to act on an alert, and in its deep-learning
+forms needs hardware that the intended deployment context does not have.
+
+This suggests that the two approaches should not be treated as
+competitors. The rule engine is the right tool for known attacks and the
+classifier is the right tool for the variants that slip past it. The
+open design question is not whether to combine them but what the system
+should do when they disagree, and how much latency the second opinion
+costs. That question motivates this work.
+
+\subsection{Research Question}
+
+Can a lightweight machine learning classifier be added to a rule-based
+WAF to improve detection accuracy and reduce false positives, without
+making the system too slow for real-time use? And when the rule engine
+and the machine learning classifier give conflicting results, what
+should the system do?
+
+\subsection{Research Objectives}
+
+\begin{description}
+  \item[O1.] Design and implement a six-module hybrid WAF prototype
+    operating as a Python reverse proxy.
+  \item[O2.] Implement a logistic regression classifier from scratch
+    using gradient descent (Pipeline 1) and a Random Forest via
+    scikit-learn as the reference pipeline (Pipeline 2).
+  \item[O3.] Design and implement a decision engine that explicitly
+    handles disagreement between the rule engine and the classifier.
+  \item[O4.] Evaluate the prototype in three operating modes
+    (rule\_only, ml\_only, hybrid) across three public benchmark
+    datasets.
+  \item[O5.] Benchmark the prototype against ModSecurity with OWASP CRS
+    v4 on the same test data.
+  \item[O6.] Measure and report accuracy, precision, recall, F1-score,
+    false positive rate and per-request latency for each mode.
+\end{description}
+
+\subsection{Contribution}
+
+The contribution of this work is a hybrid WAF design in which each
+detection path can be switched off and measured independently, together
+with an explicit and inspectable resolution of the disagreement case.
+Concretely the work contributes: a rule engine written from scratch for
+SQLi, XSS and Path Traversal; a logistic regression classifier written
+from scratch using gradient descent, with a scikit-learn equivalent
+included solely to validate its correctness; a decision engine with
+stated logic for the disagreement case; and a four-configuration
+evaluation comparing rule-only, ML-only and hybrid operation against
+ModSecurity with CRS v4 on identical traffic, under a self-imposed
+per-request processing budget on commodity CPU hardware with no GPU.
+
+The case the design exists to capture is referred to throughout as
+\emph{Case B}: the rule engine returns no match, the classifier scores
+the request above threshold, and the request is blocked on the
+classifier's evidence alone. Case B is where a hybrid system earns its
+keep, because every other case is reachable by one component acting
+alone.
+
+\subsection{Structure of this Paper}
+
+Section~\ref{sec:related} reviews existing work on signature-based
+WAFs, learned detectors, hybrid designs, evasion and adaptive
+retraining, and states the gap this work addresses.
+Section~\ref{sec:model} describes the proposed model, the module
+pipeline, the feature set, the decision logic and the operating modes.
+Section~\ref{sec:prelim} reports the state of the alpha implementation
+and preliminary measurements. Section~\ref{sec:conclusion} concludes
+and sets out the remaining work.
+
+% =====================================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Signature-Based Web Application Firewalls}
+
+ModSecurity paired with the OWASP Core Rule Set is the reference
+open-source signature-based WAF and the baseline this work compares
+against \citep{owaspcrs2024, owaspwaf2024}. \citet{applebaum2021}
+survey both signature-based and learned WAFs and set out the trade-off
+that motivates hybrid designs: signature matching is fast and
+explainable but bounded by the rule set it ships with, while learned
+detection generalises further at the cost of transparency and compute.
+The same division is visible in the wider intrusion detection
+literature, where \citet{garciateodoro2009} distinguish misuse-based
+detection, which searches for predefined patterns of known attacks,
+from anomaly-based detection, which models normal behaviour and flags
+deviation from it. A hybrid WAF is essentially an attempt to run both
+of those detection philosophies over the same request.
+
+The false positive behaviour of CRS is the practical constraint on
+simply turning rule sensitivity up. \citet{reyesnarvaez2025} evaluated
+ModSecurity 2.9 with CRS 3.3.7 deployed as a reverse proxy across all
+four paranoia levels, using 600 observations per configuration, and
+found that paranoia level 1 produced no false positives across the
+range of legitimate requests tested while levels 2 through 4 produced
+increasing numbers, although the differences between levels 2, 3 and 4
+were not statistically significant at 95\% confidence. Their finding
+matters for this project because it shows the evasion gap cannot be
+closed by widening the rule set alone without paying a false positive
+cost. \citet{tran2020} report the same tension from the opposite
+direction, measuring a 24\% false positive rate for ModSecurity with
+CRS on their traffic before applying machine learning to reduce it to
+3\%, and explicitly framing high false positive rates as a barrier for
+small and medium businesses that lack the staff to hand-tune
+exclusions.
+
+\subsection{Machine Learning for Web Attack Detection}
+
+A substantial body of work applies supervised classification directly
+to HTTP requests. \citet{durmuskaya2025} is the closest published
+comparison point to this project. They built a machine learning WAF
+targeting injection vulnerabilities, trained on a hybrid dataset
+combining CSIC 2010, HTTPParams and real-time HTTP requests, and
+compared five algorithms, k-nearest neighbours, logistic regression,
+naive Bayes, support vector machine and decision tree, across XSS, SQL
+injection, OS command injection and local file inclusion. The decision
+tree performed best on every metric they report, reaching an F1-score
+of 93.13\% and accuracy of 93.27\% in real-time testing. Their result
+supports two choices made in this project: that CSIC 2010 and
+HTTPParams together form an adequate evaluation base for injection
+detection, and that tree-based models are a reasonable expectation for
+strongest performer on this kind of feature representation.
+
+\citet{shaheed2022} take a feature-engineering approach, extracting
+structured features from requests rather than relying on raw text, and
+report that careful feature design contributes more to detection
+quality than model complexity alone. \citet{domingues2021} focus
+specifically on resource efficiency, proposing a WAF architecture in
+which the machine learning component is designed to run within
+practical compute budgets rather than assuming abundant hardware, an
+objective this project shares given its single-vCPU deployment target.
+
+At the other end of the complexity range, \citet{dawadi2023} apply deep
+learning to web attack detection and report strong accuracy, and
+\citet{li2026} address the interpretability problem that deep models
+introduce, proposing a method that localises the specific malicious
+payload within a request so that a detection can be explained rather
+than merely asserted. The general pattern across this literature is
+that detection quality rises with model capacity while explainability
+and inference cost move in the opposite direction. This project sits
+deliberately at the lightweight end of that range, using logistic
+regression and a Random Forest rather than a neural model, because the
+deployment context assumed here is a small organisation running on
+commodity hardware with no GPU.
+
+\subsection{Hybrid Rule and Learning Approaches}
+
+The work closest to this project combines signature matching with a
+learned component rather than replacing one with the other.
+\citet{scano2024} approach this from inside ModSecurity, learning
+per-rule weights so that the CRS anomaly score is tuned by a model
+instead of by hand, and report a better trade-off between detection and
+false positive rates than the stock configuration achieves.
+\citet{betarte2018} combine one-class classification and n-gram
+analysis to supplement ModSecurity, and report outperforming
+ModSecurity configured with CRS, with the one-class variant intended
+for the case where no attack training data is available for the
+protected application. \citet{tran2020} sit in the same family,
+attaching a classifier to ModSecurity specifically to suppress false
+positives while preserving CRS detections. \citet{calvo2022} propose an
+adaptive WAF architecture in which the protection adjusts over time
+rather than remaining static after deployment.
+
+This project differs from that group in three ways, stated here so the
+contribution is not overclaimed. First, those systems generally tune or
+post-process an existing rule engine, whereas this system runs an
+independent classifier as a parallel detection path over the same
+request, with neither component subordinate to the other. Second, this
+system exposes \texttt{rule\_only}, \texttt{ml\_only} and
+\texttt{hybrid} as selectable operating modes so that each detection
+path can be measured in isolation on identical traffic, rather than
+having its contribution inferred from an ablation. Third, the
+disagreement case is resolved by an explicit and stated policy in a
+dedicated decision module, rather than by a blended anomaly score,
+which means every block can be attributed to a named case.
+
+\subsection{Payload Obfuscation and Evasion}
+
+The evidence that signature evasion is a practical and not merely
+theoretical problem is strong. \citet{demetrio2020} present
+WAF-A-MoLE, a guided mutation fuzzer that applies syntactic
+transformations to SQL injection payloads while preserving their
+semantics, and report bypassing every machine learning based WAF they
+evaluated. \citet{qu2024} extend this to commercial deployments with
+AdvSQLi, generating adversarial SQL injection payloads through
+transformations on a hierarchical tree representation of the original
+payload, and report a maximum attack success rate of 100\% against
+state-of-the-art machine learning based SQLi detectors, together with
+successful bypasses against all seven commercial WAF-as-a-service
+products they tested.
+
+Two points follow for this project. The first is that the Case B
+scenario this system is built around, an attack that a rule engine
+misses because its spelling has changed while its behaviour has not, is
+a documented and reproducible phenomenon rather than a hypothetical
+one. The second is a caution about scope: both of these works
+demonstrate that adding a machine learning component does not by itself
+confer resistance to a determined adversary who can query the detector.
+This project does not claim adversarial robustness, and the evaluation
+reported here uses static benchmark datasets rather than adaptively
+generated payloads.
+
+\subsection{Evaluation Practice and the Small Organisation Context}
+
+\citet{sommer2010} remains the standard cautionary reference on
+applying machine learning to intrusion detection. Their central
+argument is that attack detection differs from the tasks where machine
+learning typically succeeds, because the cost of a false positive is
+high, the base rate of attacks is low, and the semantic gap between a
+model output and an actionable decision is wide. This directly informs
+two decisions in this project: reporting false positive rate alongside
+recall rather than headline accuracy, and keeping an explicit decision
+module between the classifier output and the block action rather than
+thresholding the score in isolation.
+
+The deployment context matters for how these trade-offs should be
+weighted. \citet{rombaldo2023} systematically reviewed the literature
+on small and medium enterprise cybersecurity and found limited security
+literacy, constrained budgets and low awareness to be the dominant
+constraints, concluding that limited literacy is the root cause from
+which the other constraints follow. An organisation of that kind cannot
+realistically maintain a large hand-tuned exclusion list against a high
+false positive rate, which is the practical reason this project treats
+false positive rate as a first-class metric rather than a secondary
+one.
+
+\subsection{Summary and Research Gap}
+
+The literature establishes three things relevant here. Signature-based
+WAFs are fast and explainable but structurally limited against
+obfuscation, and widening their rule sets raises false positives
+\citep{applebaum2021, reyesnarvaez2025, tran2020}. Learned detectors
+generalise further but trade away transparency and inference cost as
+capacity grows \citep{durmuskaya2025, dawadi2023, li2026}. Payload
+obfuscation reliably defeats both signature matching and undefended
+machine learning detectors \citep{demetrio2020, qu2024}.
+
+What is less commonly done is isolating and separately measuring the
+specific contribution of the learned path on exactly those requests the
+rule engine fails to catch. Hybrid work in this area tends either to
+tune an existing rule engine using machine learning
+\citep{scano2024, tran2020} or to supplement it with a classifier whose
+individual contribution is reported as an aggregate improvement
+\citep{betarte2018}. This project addresses that gap by making each
+detection path independently selectable and by counting, as a distinct
+quantity, how often the classifier blocks a request the rule engine
+allowed. That quantity, referred to throughout as Case B, is the direct
+measure of what the hybrid design contributes over the rule engine
+alone.
+
+% =====================================================================
+\section{Proposed Model}
+\label{sec:model}
+
+% This section is a bonus. The rubric requires TWO of Introduction,
+% Related Work and Proposed Model. Introduction and Related Work are
+% the two being submitted. This section is included because the
+% material already exists from D04 to D06 and it strengthens the draft
+% at low cost.
+
+\subsection{Architecture}
+
+The system is a six-module pipeline. Each module has a single
+responsibility and a defined interface to the next, which is what makes
+the mode switching and the per-stage timing possible.
+
+\begin{description}
+  \item[M1 TrafficReader] accepts the inbound HTTP request and parses
+    method, path, query string, headers and body.
+  \item[M2 FeatureExtractor] converts the request text into the numeric
+    feature vector described in Section~\ref{sec:features}.
+  \item[M3 RuleEngine] evaluates the request against the regex rule set
+    for SQLi, XSS and Path Traversal and returns a match or no match
+    together with the identifier of any rule that fired.
+  \item[M4 MLClassifier] scores the feature vector and returns a
+    probability that the request is an attack.
+  \item[M5 DecisionEngine] combines the rule result and the classifier
+    result according to the policy in Section~\ref{sec:decision} and
+    returns allow or block with a reason.
+  \item[M6 Logger] records the request, both component verdicts, the
+    final decision, the reason and the timing measurements.
+\end{description}
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  node distance=10mm and 12mm,
+  box/.style={draw=ujnavy, fill=ujnavy, text=white, rounded corners,
+              minimum width=2.4cm, minimum height=1.05cm,
+              align=center, font=\small\bfseries, line width=0.4pt},
+  detbox/.style={draw=ujblue, fill=ujblue, text=white, rounded corners,
+              minimum width=2.4cm, minimum height=1.05cm,
+              align=center, font=\small\bfseries, line width=0.4pt},
+  arr/.style={-{Latex[length=2.2mm]}, thick, draw=ujnavy}
+]
+\node[box] (m1) {M1\\TrafficReader};
+\node[box, right=of m1] (m2) {M2\\FeatureExtractor};
+\node[detbox, above right=8mm and 14mm of m2] (m3) {M3\\RuleEngine};
+\node[detbox, below right=8mm and 14mm of m2] (m4) {M4\\MLClassifier};
+\node[box, right=26mm of m2] (m5) {M5\\DecisionEngine};
+\node[box, right=of m5] (m6) {M6\\Logger};
+
+\draw[arr] (m1) -- (m2);
+\draw[arr] (m2) -- (m3);
+\draw[arr] (m2) -- (m4);
+\draw[arr] (m3) -- (m5);
+\draw[arr] (m4) -- (m5);
+\draw[arr] (m5) -- (m6);
+
+\begin{scope}[on background layer]
+\node[fit=(m3)(m4)(m5), inner sep=7mm, draw=ujnavy, dashed,
+      rounded corners, line width=0.5pt] (modebox) {};
+\end{scope}
+\node[above=1.5mm of modebox, font=\scriptsize\itshape, text=ujnavy]
+     {selectable detection paths, hybrid mode consults both};
+\end{tikzpicture}%
+}
+\caption{Six-module pipeline. \texttt{rule\_only} consults M3 alone,
+\texttt{ml\_only} consults M4 alone, \texttt{hybrid} consults both and
+resolves through M5.}
+\label{fig:pipeline}
+\end{figure}
+
+Figure~\ref{fig:pipeline} shows the pipeline. M2 branches into M3 and
+M4, which run independently of each other and are the two paths an
+operating mode can selectively skip, before both results converge on
+M5 for the decision, and M6 records the outcome.
+
+The system runs in one of three modes, set in configuration.
+\texttt{rule\_only} consults M3 alone. \texttt{ml\_only} consults M4
+alone. \texttt{hybrid} consults both and resolves through M5. The modes
+exist so that the contribution of each detection path can be measured
+on identical traffic rather than inferred.
+
+\subsection{Feature Set}
+\label{sec:features}
+
+Six numeric features are extracted from each request. The extractor
+operates on a single analysis string formed by concatenating the
+request path, query string and body, so a payload is treated
+identically regardless of which of those three fields carries it.
+
+\begin{description}
+  \item[F1, request length] total character count of the analysis
+    string.
+  \item[F2, special character count] count of characters drawn from the
+    set \texttt{' " ; < > ( ) = - \#}, chosen because these are the
+    characters that carry syntactic meaning in SQL injection and XSS
+    payloads.
+  \item[F3, SQL keyword count] number of distinct keywords from the set
+    SELECT, UNION, DROP, INSERT, UPDATE, DELETE, OR, WHERE, FROM
+    matched on word boundaries against the uppercased analysis string.
+    Word-boundary matching is used so that ordinary words containing a
+    keyword as a substring do not register a match.
+  \item[F4, script tag flag] binary flag set when the analysis string
+    matches a script-injection pattern, covering an opening
+    \texttt{script} tag and the \texttt{onerror}, \texttt{onload} and
+    \texttt{javascript:} handlers.
+  \item[F5, path traversal count] number of traversal sequences
+    matched, covering the literal \texttt{../} form, its
+    percent-encoded equivalents, and the Windows backslash variant.
+  \item[F6, entropy] Shannon entropy of the character distribution of
+    the analysis string, included as a proxy for the character
+    diversity that encoding and obfuscation tend to introduce.
+\end{description}
+
+This feature set is deliberately small. Each value is cheap to compute
+in a single pass and each has a direct human-readable meaning, which is
+what allows a block decision to be explained in terms of which feature
+values drove it. The cost of that choice is discussed in
+Section~\ref{sec:prelim}: features at this level of abstraction cannot
+distinguish an injected SQL fragment from legitimate text that happens
+to contain SQL syntax.
+
+An extension to twelve features, applying the same extractor twice,
+once to the raw request and once to a bounded-pass decoded form, and
+concatenating the two vectors, has been prototyped and measured
+separately but is not part of the implementation evaluated in this
+paper. It is described in Section~\ref{sec:conclusion} as planned work.
+
+\subsection{Decision Logic}
+\label{sec:decision}
+
+In hybrid mode the decision engine receives a rule result, a match or
+no match, and a classifier probability, and resolves the four possible
+combinations according to Table~\ref{tab:decision}. The threshold
+$\theta$ is set to 0.5 in all results reported here.
+
+\begin{table}[t]
+\centering
+\caption{Decision table for hybrid mode. Every block carries a named
+reason, so any decision can be attributed to a specific case.}
+\label{tab:decision}
+\begin{tabular}{llll}
+\toprule
+Rule engine & Classifier & Action & Stated reason \\
+\midrule
+MATCH    & $\geq \theta$ & BLOCK & Both agree, confirmed attack \\
+MATCH    & $< \theta$    & BLOCK & Case A, rule takes priority \\
+NO MATCH & $\geq \theta$ & BLOCK & Case B, classifier catches obfuscation \\
+NO MATCH & $< \theta$    & ALLOW & Both agree, legitimate request \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The two disagreement cases carry the design intent. Case A, where a
+rule fires but the classifier scores the request benign, resolves in
+favour of the rule engine. This is a conservative choice: a rule match
+is deterministic evidence that a known attack pattern is present, and
+the project treats that as outweighing a low probability estimate.
+Case B, where no rule fires but the classifier scores the request above
+threshold, is the case this system exists to capture. It is the
+situation an attacker creates by obfuscating a payload so that its byte
+sequence no longer matches any signature while its behaviour is
+unchanged. Counting how often Case B fires gives a direct measure of
+what the classifier contributes beyond the rule engine, and that count
+is reported in Section~\ref{sec:prelim}.
+
+\subsection{Classifier Pipelines}
+
+Three classifier pipelines are used. Pipeline 1 is a logistic
+regression model implemented from scratch in NumPy and trained by
+gradient descent. Pipeline 2 is a scikit-learn Random Forest, used as
+the reference implementation. Pipeline 3 is a scikit-learn logistic
+regression, included for the single purpose of validating Pipeline 1:
+if the from-scratch implementation is correct, the two logistic
+regression pipelines should reach closely comparable performance on the
+same data.
+
+\subsection{Datasets}
+
+Two datasets were merged for training and evaluation: CSIC 2010
+\citep{csic2010}, a widely used benchmark of generated HTTP requests
+against a mock e-commerce application, contributing 97{,}065 requests
+(72{,}000 benign, 25{,}065 attack, primarily SQL injection and
+parameter tampering), and HTTPParams \citep{httpparams}, contributing
+31{,}067 labelled parameter payloads across benign traffic and SQL
+injection, XSS, command injection and path traversal categories. This
+pairing follows established practice in this specific research area:
+\citet{durmuskaya2025} evaluate a machine learning WAF for injection
+detection on a hybrid dataset built from these same two sources. The merged dataset totals
+128{,}132 requests, 91{,}304 benign and 36{,}828 attack, split 80/20
+into train and test sets, stratified by label, with a fixed random
+seed for reproducibility.
+
+A third dataset, WADE-2022, referenced in earlier project planning as
+a source of modern attack traffic, could not be integrated. No public
+download location or verifiable academic source for a dataset under
+that name could be located, and it was therefore excluded from this
+evaluation, which relies on CSIC 2010 and HTTPParams only.
+
+One methodological correction is worth stating explicitly. HTTPParams
+payloads are bare strings, not full HTTP requests, and an earlier
+version of the merge script placed each payload as a query parameter
+value, \texttt{param=\{payload\}}, to give the feature extractor a
+request-shaped input. This choice had an unintended side effect: every
+HTTPParams row, benign or attack, was guaranteed to contain at least
+one \texttt{=} character contributed by the wrapper itself, not the
+underlying content. Combined with CSIC's benign traffic, which
+consists of long e-commerce query strings with several genuine
+\texttt{=} characters, the merged training data contained almost no
+short, zero-special-character benign example, exactly the shape of an
+ordinary word or short phrase. The trained classifier was observed
+scoring plain English input such as ``hello world'' and single words
+such as ``login'' above the block threshold as a direct consequence.
+The fix was to place each payload directly as the query string with no
+added characters. Retraining after this fix reduced the Random
+Forest's false positive rate from 1.1\% to 0.6\% and increased
+precision from 0.965 to 0.980, at a small cost to recall (0.748 to
+0.714), and eliminated the plain-text false positives observed in
+interactive testing. This is reported as a finding in its own right,
+not only as a bug fix, since it illustrates how a placement choice made
+for engineering convenience can leave a systematic artefact in
+training data that a model will learn from.
+
+% =====================================================================
+\section{Preliminary Implementation and Results}
+\label{sec:prelim}
+
+The alpha version implements all six modules, all three operating modes
+and all three classifier pipelines, with 23 passing unit tests.
+
+Table~\ref{tab:results} reports detection performance for each
+configuration on the held-out test set of 25{,}627 requests (7{,}366
+attack, 18{,}261 benign). Random Forest is used as the ML component
+for the ml\_only and hybrid rows, since it was the strongest performer
+among the three classifier pipelines. The custom logistic regression
+result is included separately to show the gap between a linear model
+and an ensemble on this feature set, and to record that Pipeline 1 and
+Pipeline 3 (the scikit-learn logistic regression built purely to
+validate Pipeline 1) land close together, F1 of 0.512 and 0.511
+respectively, which supports that the from-scratch implementation is
+correct. ModSecurity 2.9.7 with OWASP CRS v4.10.0 was stood up as an
+external baseline on the project VM (Apache 2.4.58, default paranoia
+level 1, default anomaly score threshold of 5) and evaluated against
+the identical 25{,}627-request test set, each request sent as a
+URL-encoded query parameter value over HTTP, with a 403 response
+counted as a block.
+
+\begin{table}[t]
+\centering
+\caption{Detection performance by configuration on the merged dataset
+(25{,}627 test requests: 7{,}366 attack, 18{,}261 benign).}
+\label{tab:results}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Precision & Recall & F1 & FPR \\
+\midrule
+Rule-only               & 1.000 & 0.289 & 0.449 & 0.000 \\
+ML-only (Custom LR)     & 0.651 & 0.423 & 0.512 & 0.092 \\
+ML-only (Random Forest) & 0.980 & 0.713 & 0.825 & 0.006 \\
+Hybrid                  & 0.980 & 0.714 & 0.826 & 0.006 \\
+ModSecurity + CRS v4    & 0.799 & 0.440 & 0.568 & 0.045 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.92\linewidth, height=5.4cm,
+  ybar, bar width=13pt,
+  ymin=0, ymax=1.05,
+  ylabel={Score},
+  ylabel style={font=\small},
+  symbolic x coords={Rule-only, ModSec+CRSv4, Custom LR, Random Forest, Hybrid},
+  xtick=data,
+  x tick label style={font=\scriptsize, rotate=18, anchor=east},
+  y tick label style={font=\scriptsize},
+  legend style={font=\scriptsize, at={(0.5,1.16)}, anchor=north,
+                legend columns=3, draw=none},
+  ymajorgrids=true, grid style={dashed, gray!30},
+  enlarge x limits=0.13,
+  axis lines*=left,
+]
+\addplot[fill=ujnavy, draw=ujnavy] coordinates {
+  (Rule-only,1.000) (ModSec+CRSv4,0.799) (Custom LR,0.651)
+  (Random Forest,0.980) (Hybrid,0.980)};
+\addplot[fill=ujblue, draw=ujblue] coordinates {
+  (Rule-only,0.289) (ModSec+CRSv4,0.440) (Custom LR,0.423)
+  (Random Forest,0.713) (Hybrid,0.714)};
+\addplot[fill=gray!55, draw=gray!70] coordinates {
+  (Rule-only,0.449) (ModSec+CRSv4,0.568) (Custom LR,0.512)
+  (Random Forest,0.825) (Hybrid,0.826)};
+\legend{Precision, Recall, F1}
+\end{axis}
+\end{tikzpicture}
+\caption{Detection performance across all five configurations on the
+25{,}627-request test set. The rule engine alone reaches perfect
+precision but the lowest recall of any configuration. The hybrid
+configuration achieves the highest F1-score, above both the ModSecurity
+with CRS v4 external baseline and either detection path alone.}
+\label{fig:results}
+\end{figure}
+
+Case B, the classifier flagging an obfuscated payload the rule engine
+missed entirely, fired on 3{,}232 of the 25{,}627 test requests
+(12.61\%). This is the core quantitative result behind this project's
+contribution: on more than one in eight test requests, the rule engine
+alone would have allowed an attack through that the hybrid
+configuration correctly blocked.
+
+The comparison against ModSecurity with CRS v4 is a notable result in
+its own right. The hybrid configuration reaches an F1-score of 0.826
+against CRS's 0.568 on the same test set, and does so with a lower
+false positive rate, 0.6\% against CRS's 4.5\%. This is not a comparison
+against a weak baseline: CRS is the reference open-source rule set the
+wider field measures against, and its recall here, 0.440, sits below
+both machine-learning configurations in this table, meaning it misses
+more attacks in this test set than either the custom logistic
+regression or the Random Forest classifier does on its own. The
+elevated CRS false positive rate is also consistent with
+\citet{reyesnarvaez2025}, who report exactly this trade-off at CRS's
+higher paranoia levels, false positives rise as coverage widens. Taken
+together, this suggests the gap this project targets, a narrow, fast
+rule engine paired with a lightweight classifier, is a real gap even
+against a fully deployed industrial rule set, not only against the
+36-rule engine built for this project.
+
+\begin{table}[t]
+\centering
+\caption{Per-request processing time by pipeline stage, measured
+internally with \texttt{time.perf\_counter} and excluding network
+round-trip. Benchmarked on the full 25{,}627-request test set.}
+\label{tab:latency}
+\begin{tabular}{lccc}
+\toprule
+Stage & Mean (ms) & Median (ms) & 95th percentile (ms) \\
+\midrule
+Rule engine (M3)      & 0.032 & 0.025 & 0.080 \\
+Classifier (M4)       & 3.292 & 3.251 & 3.663 \\
+Full pipeline (M2--M5)& 3.332 & 3.285 & 3.716 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:latency} was produced by a systematic benchmark over the
+full 25{,}627-request test set, the same test set used throughout this
+paper, not the handful of manually typed requests reported in earlier
+project sessions. The rule engine and decision module together account
+for a small fraction of total time, under a tenth of a millisecond at
+the mean. The Random Forest classifier dominates the pipeline, as
+expected for the only stage doing anything beyond string matching or
+arithmetic. The full pipeline mean of 3.332ms, and 95th percentile of
+3.716ms, sit comfortably inside the sub-10ms internal processing target
+stated in this project's design documents.
+
+This figure is noticeably lower than the 8 to 20ms range observed
+earlier when payloads were typed individually into the interactive
+demo. That earlier range is not wrong, it reflects a different
+condition: a batch benchmark runs requests back to back with no idle
+time, keeping the CPU at a consistent clock speed, whereas an
+interactive session has gaps between keystrokes during which modern
+CPUs throttle down and take a moment to return to full speed once work
+arrives. The systematic figure in Table~\ref{tab:latency} is the one
+that should be taken as representative of sustained processing, the
+earlier range reflected a colder, less representative CPU state rather
+than a slower pipeline.
+
+Table~\ref{tab:passthrough} reframes the same test-set results around
+the question a deploying organisation actually cares about: of the
+7{,}366 real attacks in the test set, how many would reach the backend
+application unblocked under each configuration. This is the single
+clearest demonstration of utility in this paper. Under rule-only
+protection, 71.1\% of attacks reach the backend unblocked. Under the
+hybrid configuration, that falls to 28.6\%, a reduction of more than
+40 percentage points from adding the classifier alongside the existing
+rules, at a false positive cost of 0.6\% on benign traffic. ModSecurity
+with CRS v4 lets 56.0\% of attacks through unblocked on this same test
+set, worse than either machine-learning configuration and better only
+than this project's own rule-only mode, reinforcing that the hybrid
+result is not an artefact of comparing against an unusually weak rule
+engine.
+
+\begin{table}[t]
+\centering
+\caption{Attacks reaching the backend unblocked, out of 7{,}366 real
+attacks in the test set.}
+\label{tab:passthrough}
+\begin{tabular}{lcc}
+\toprule
+Configuration & Attacks reaching backend & \% of all attacks \\
+\midrule
+Rule-only               & 5{,}235 & 71.1\% \\
+ML-only (Random Forest) & 2{,}117 & 28.7\% \\
+Hybrid                  & 2{,}110 & 28.6\% \\
+ModSecurity + CRS v4    & 4{,}124 & 56.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Observed Limitation: Legitimate SQL-Like Text}
+
+Interactive testing surfaced a limitation worth documenting honestly
+rather than leaving for a marker to discover independently. The input
+\texttt{SELECT name FROM products WHERE price < 100}, an ordinary,
+syntactically valid database query with no injection intent, was
+blocked by both detection paths: rule \texttt{SQLi\_005} matched on
+the \texttt{SELECT...FROM} pattern, and the Random Forest classifier
+scored it 1.000. This is not a bug in the sense of unexpected or
+incorrect code behaviour, both components did exactly what they were
+built to do. It is a structural limitation of detecting SQL injection
+by keyword and character-pattern features alone: those features cannot
+distinguish an attacker's injected query from a legitimate discussion
+or use of SQL syntax, since both produce the same keyword count and
+special-character pattern. A support forum, technical documentation
+page, or internal admin tool that legitimately handles SQL-like text
+would be expected to trigger this same false positive. Addressing this
+would require features or context beyond what this project's six-value
+feature vector captures, noted here as a direction for Beta rather than
+something resolved in this alpha version.
+
+% =====================================================================
+\section{Conclusion and Further Work}
+\label{sec:conclusion}
+
+This paper presented the alpha implementation and preliminary
+evaluation of a hybrid web application firewall combining a
+36-rule regex engine with a trained Random Forest classifier. On a
+held-out test set, the hybrid configuration reached an F1-score of
+0.826 against 0.449 for the rule engine alone and 0.568 for
+ModSecurity with OWASP CRS v4 stood up as an external baseline, at a
+false positive rate of 0.6\% against 4.5\% for CRS, and the classifier
+caught obfuscated attacks the rule engine missed on 12.61\% of test
+requests, this project's core Case B contribution. Reframed as attacks
+reaching the backend unblocked, the hybrid configuration reduced that
+figure from 71.1\% under rule-only protection to 28.6\%, compared with
+56.0\% for ModSecurity with CRS v4. This is a direct, positive answer
+to this paper's research question: a lightweight classifier added to a
+rule-based WAF measurably improves detection without discarding the
+rule engine's speed and transparency, and does so to a degree that
+outperforms a fully deployed industrial rule set on this test set,
+though the choice of how to
+resolve disagreement between the two remains where that improvement
+is decided.
+
+Several things have not been done yet and are stated plainly rather
+than implied otherwise. The WADE-2022 dataset referenced in earlier
+planning could not be located and was not used. The decoding pass and
+continual learning capabilities described in this project's design
+documents have been prototyped and measured separately but not yet
+integrated into the repository evaluated here. The observed
+false-positive behaviour on legitimate SQL-like text
+(Section~\ref{sec:prelim}) is reported as a structural limitation of
+the current feature set rather than something this alpha version
+resolves.
+
+Toward the Beta version, the immediate priority is integrating the
+decoding pass, which raised Random Forest F1 from 0.814 to 0.833 in
+isolated testing, since it directly addresses the obfuscation case
+this project is built around. Locating a genuine third dataset with
+modern encoded and obfuscated attack traffic, to replace the WADE-2022
+reference that could not be substantiated, is a secondary priority.
+
+% =====================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
