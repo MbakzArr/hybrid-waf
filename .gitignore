@@ -8,3 +8,4 @@ datasets/
 .DS_Store
 data/
 waf_alerts.log
+modsec_test_set.csv

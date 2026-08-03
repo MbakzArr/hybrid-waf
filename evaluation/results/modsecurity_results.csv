@@ -1,0 +1,2 @@
+pipeline,accuracy,precision,recall,f1,fpr,tp,fp,tn,fn,errors
+modsecurity_crs_v4,0.8073,0.7991,0.4401,0.5676,0.0446,3242,815,17446,4124,0
