@@ -47,7 +47,14 @@ def compute_stats(rows: list) -> dict:
         "by_trigger": {"Case A": 0, "Case B": 0, "Both agree": 0},
         "mode": "hybrid",
         "last_updated": datetime.now().strftime("%H:%M:%S"),
+        "perf": {
+            "count": 0,
+            "avg_total_ms": 0.0, "min_total_ms": 0.0, "max_total_ms": 0.0,
+            "avg_extract_ms": 0.0, "avg_rule_ms": 0.0,
+            "avg_ml_ms": 0.0, "avg_decide_ms": 0.0,
+        },
     }
+    totals, extracts, rules_t, mls, decides = [], [], [], [], []
     for row in rows:
         action = row.get("action", "ALLOW")
         if action == "BLOCK":
@@ -66,9 +73,35 @@ def compute_stats(rows: list) -> dict:
             stats["allowed"] += 1
         if row.get("mode"):
             stats["mode"] = row["mode"]
+
+        # Timing columns are optional. Older log rows, e.g. from the
+        # sample log generator, may not have them, skip quietly rather
+        # than crash on a missing or blank field.
+        try:
+            if row.get("t_total_ms"):
+                totals.append(float(row["t_total_ms"]))
+                extracts.append(float(row["t_extract_ms"]))
+                rules_t.append(float(row["t_rule_ms"]))
+                mls.append(float(row["t_ml_ms"]))
+                decides.append(float(row["t_decide_ms"]))
+        except (ValueError, KeyError):
+            pass
+
     if stats["total"] > 0:
         stats["block_rate"] = \
             f"{100*stats['blocked']/stats['total']:.1f}%"
+
+    if totals:
+        stats["perf"] = {
+            "count": len(totals),
+            "avg_total_ms": round(sum(totals)/len(totals), 3),
+            "min_total_ms": round(min(totals), 3),
+            "max_total_ms": round(max(totals), 3),
+            "avg_extract_ms": round(sum(extracts)/len(extracts), 3),
+            "avg_rule_ms": round(sum(rules_t)/len(rules_t), 3),
+            "avg_ml_ms": round(sum(mls)/len(mls), 3),
+            "avg_decide_ms": round(sum(decides)/len(decides), 3),
+        }
     return stats
 
 
@@ -216,6 +249,19 @@ border-radius:6px;padding:11px;font-size:.86em;margin-top:6px;line-height:1.5;}
       <div><div class="chart-title">By Trigger Type</div><div id="trig-bars"></div></div>
     </div>
   </div>
+  <div class="panel-box">
+    <div class="panel-head">Performance (entrance to decision, in-process time only)</div>
+    <div class="panel-body">
+      <div class="cards" style="margin-bottom:14px;">
+        <div class="card total"><div class="num" id="p-avg">0</div><div class="lbl">Avg Total (ms)</div></div>
+        <div class="card allowed"><div class="num" id="p-min">0</div><div class="lbl">Shortest (ms)</div></div>
+        <div class="card blocked"><div class="num" id="p-max">0</div><div class="lbl">Longest (ms)</div></div>
+        <div class="card rate"><div class="num" id="p-count">0</div><div class="lbl">Requests Timed</div></div>
+      </div>
+      <div class="chart-title">Average Time by Pipeline Stage</div>
+      <div id="perf-bars"></div>
+    </div>
+  </div>
 </div>
 <div id="logs" class="view">
   <div class="controls">
@@ -288,6 +334,17 @@ function renderOverview(s){
   const tr=s.by_trigger,tMax=Math.max(tr['Case A'],tr['Case B'],tr['Both agree'],1);
   document.getElementById('trig-bars').innerHTML=
     bar('Case A',tr['Case A'],tMax,'blue')+bar('Case B',tr['Case B'],tMax,'purple')+bar('Both agree',tr['Both agree'],tMax,'red');
+  const p=s.perf||{};
+  document.getElementById('p-avg').textContent=(p.avg_total_ms||0).toFixed(2);
+  document.getElementById('p-min').textContent=(p.min_total_ms||0).toFixed(2);
+  document.getElementById('p-max').textContent=(p.max_total_ms||0).toFixed(2);
+  document.getElementById('p-count').textContent=p.count||0;
+  const stageMax=Math.max(p.avg_extract_ms||0,p.avg_rule_ms||0,p.avg_ml_ms||0,p.avg_decide_ms||0,0.001);
+  document.getElementById('perf-bars').innerHTML=
+    bar('Extract',(p.avg_extract_ms||0).toFixed(3),stageMax,'blue')+
+    bar('Rules',(p.avg_rule_ms||0).toFixed(3),stageMax,'green')+
+    bar('ML',(p.avg_ml_ms||0).toFixed(3),stageMax,'purple')+
+    bar('Decide',(p.avg_decide_ms||0).toFixed(3),stageMax,'amber');
 }
 function catBadge(cat){
   if(cat==='SQLi')return'<span class="badge b-sqli">SQLi</span>';
@@ -309,6 +366,17 @@ function openDetail(i){
                ['F4 script flag',r.F4],['F5 traversal',r.F5],['F6 entropy',r.F6]];
   let fv='';
   for(const [k,v] of feats){ if(v!==undefined) fv+=`<div class="k">${k}</div><div>${esc(v)}</div>`; }
+  let timingBlock='';
+  if(r.t_total_ms){
+    timingBlock = `<div class="sec">Processing Time (entrance to decision)</div>
+     <div class="kv">
+       <div class="k">Feature extraction</div><div>${esc(r.t_extract_ms)} ms</div>
+       <div class="k">Rule engine</div><div>${esc(r.t_rule_ms)} ms</div>
+       <div class="k">ML classifier</div><div>${esc(r.t_ml_ms)} ms</div>
+       <div class="k">Decision engine</div><div>${esc(r.t_decide_ms)} ms</div>
+       <div class="k"><strong>Total</strong></div><div><strong>${esc(r.t_total_ms)} ms</strong></div>
+     </div>`;
+  }
   document.getElementById('m-title').textContent = blocked?'Blocked request':'Allowed request';
   document.getElementById('m-body').innerHTML =
     `<div class="kv">
@@ -319,11 +387,12 @@ function openDetail(i){
        <div class="k">ML score</div><div>${s}</div>
      </div>
      <div class="sec">Payload</div>
-     <div class="payload-box">${esc(r.path||'')}</div>
+     <div class="payload-box">${esc(r.payload || r.path || '')}</div>
      <div class="sec">Why this decision</div>
      <div class="reason-box">${esc(why)}</div>
      <div class="sec">Feature vector</div>
-     <div class="kv">${fv}</div>`;
+     <div class="kv">${fv}</div>
+     ${timingBlock}`;
   document.getElementById('ov').classList.add('show');
 }
 function closeDetail(){document.getElementById('ov').classList.remove('show');}
@@ -334,7 +403,7 @@ function renderTable(){
   let rows=allRows.filter(r=>{
     if(fa&&r.action!==fa)return false;
     if(fc&&r.rule_category!==fc)return false;
-    if(q){const hay=`${r.path||''} ${r.source_ip||''} ${r.rule_id||''} ${r.reason||''} ${r.method||''}`.toLowerCase();if(!hay.includes(q))return false;}
+    if(q){const hay=`${r.payload||''} ${r.path||''} ${r.source_ip||''} ${r.rule_id||''} ${r.reason||''} ${r.method||''}`.toLowerCase();if(!hay.includes(q))return false;}
     return true;
   });
   rows.sort((a,b)=>{
@@ -353,7 +422,7 @@ function renderTable(){
     const rule=(r.rule_id&&r.rule_id!=='NONE')?r.rule_id:'<span class="b-none">-</span>';
     const score=parseFloat(r.ml_score||0).toFixed(3);
     const sc=parseFloat(r.ml_score||0)>=0.5?'var(--red)':'var(--muted)';
-    return`<tr onclick="openDetail(${i})"><td>${t}</td><td>${r.source_ip||''}</td><td>${r.method||''}</td><td>${r.path||''}</td><td>${action}</td><td>${catBadge(r.rule_category)}</td><td>${rule}</td><td style="color:${sc}">${score}</td><td><span class="link">view</span></td></tr>`;
+    return`<tr onclick="openDetail(${i})"><td>${t}</td><td>${r.source_ip||''}</td><td>${r.method||''}</td><td>${esc(r.payload||r.path||'')}</td><td>${action}</td><td>${catBadge(r.rule_category)}</td><td>${rule}</td><td style="color:${sc}">${score}</td><td><span class="link">view</span></td></tr>`;
   }).join('');
 }
 function sortBy(f){if(sortField===f)sortDesc=!sortDesc;else{sortField=f;sortDesc=true;}renderTable();}

@@ -7,3 +7,4 @@ datasets/
 *.zip
 .DS_Store
 data/
+waf_alerts.log
