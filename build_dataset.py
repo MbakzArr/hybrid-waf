@@ -111,14 +111,26 @@ def parse_csic_file(path, label):
 def parse_httpparams_file(path):
     """
     Parses the HTTPParams CSV. Each row is a bare payload string, not a
-    full request, so we wrap it as a single query parameter to match the
-    input shape the FeatureExtractor expects. This is a stated placement
-    choice: full_text() concatenates path+query+body regardless of which
-    field the payload sits in, so it does not change any feature value.
+    full request, so we place it directly as the query string.
 
-    Label rule: the dataset's own 'label' column says 'norm' for benign
-    rows and 'sqli' / 'xss' / 'cmdi' / 'path-traversal' for attack rows.
-    We map 'norm' to 0 and everything else to 1.
+    NOTE: earlier versions of this script wrapped the payload as
+    "param={payload}", which guaranteed every single HTTPParams row,
+    benign or attack, contained at least one '=' character from the
+    wrapper itself, not from the real content. Combined with CSIC's
+    benign traffic (long e-commerce query strings, several real '='
+    signs), this left almost no short, zero-special-character benign
+    training example, exactly the shape of a plain English word or
+    phrase. The trained model then had no real basis for classifying
+    that region of feature space as benign, and defaulted toward
+    attack-leaning scores for ordinary text (observed directly: typing
+    "login", "hello world", and random short strings into the demo
+    all scored above the 0.5 threshold on the previously trained
+    model). Using the payload directly, with no injected characters,
+    removes that artificial signal.
+
+    Label rule unchanged: the dataset's own 'label' column says 'norm'
+    for benign rows and 'sqli' / 'xss' / 'cmdi' / 'path-traversal' for
+    attack rows. 'norm' maps to 0, everything else to 1.
     """
     requests = []
     with open(path, newline="", encoding="utf-8", errors="replace") as f:
@@ -131,7 +143,7 @@ def parse_httpparams_file(path):
             req = HTTPRequest(
                 method="GET",
                 path="/",
-                query_string=f"param={payload}",
+                query_string=payload,
                 headers={},
                 body="",
             )
