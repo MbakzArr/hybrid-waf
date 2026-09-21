@@ -4,19 +4,19 @@
 server:
   host: "127.0.0.1"
   port: 8080
-  backend_url: "http://127.0.0.1:9090"
+  backend_url: "http://127.0.0.1:8081"  # DVWA default, override with --backend for Juice Shop
 
 detection:
   mode: "hybrid"          # rule_only | ml_only | hybrid
   threshold: 0.5          # ML probability cutoff
-  pipeline: "lr"          # lr (Pipeline 1) | rf (Pipeline 2)
+  pipeline: "rf"          # lr (Pipeline 1) | rf (Pipeline 2)
 
 rules:
   file: "rules/rules.txt"
 
 models:
-  lr_model_path: "models/lr_model.pkl"
-  rf_model_path: "models/rf_model.pkl"
+  lr_model_path: "models/pipeline1_logreg.pkl"
+  rf_model_path: "models/pipeline2_random_forest.pkl"
 
 logging:
   log_file: "logs/waf_events.csv"
