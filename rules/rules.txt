@@ -50,3 +50,18 @@ PATH_009 | PATH | (%25(2e|2E)%25(2e|2E)%25(2f|2F))
 PATH_010 | PATH | (%00)
 PATH_011 | PATH | (?i)(boot\.ini|win\.ini)
 PATH_012 | PATH | (?i)(\.git/config|\.env\b|\.htaccess)
+
+# ── SQL Injection (Beta additions) ───────────────────────────────────
+SQLi_013 | SQLi | (?i)(;\s*\b(SELECT|INSERT|UPDATE|DELETE|DROP|EXEC)\b)
+SQLi_014 | SQLi | (?i)(\bxp_cmdshell\b)
+SQLi_015 | SQLi | (?i)(\b(SUBSTRING|ASCII|ORD)\s*\()
+
+# ── Cross-Site Scripting (Beta additions) ────────────────────────────
+XSS_013 | XSS | (?i)(data:text/html)
+XSS_014 | XSS | (?i)(vbscript\s*:)
+XSS_015 | XSS | (?i)(srcdoc\s*=)
+
+# ── Path Traversal (Beta additions) ──────────────────────────────────
+PATH_013 | PATH | (?i)(php://(filter|input))
+PATH_014 | PATH | (?i)(\.ssh/id_rsa)
+PATH_015 | PATH | (?i)(web\.config)

@@ -63,3 +63,111 @@ class TestRuleEngine:
         """RuleResult.is_match() mirrors the matched attribute."""
         result = engine.evaluate("' OR 1=1 --")
         assert result.is_match() == result.matched
+
+    def test_stacked_query_detected(self, engine):
+        """UT14: Semicolon-chained query triggers SQLi rule (SQLi_013)."""
+        result = engine.evaluate("id=1; DROP TABLE users")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_xp_cmdshell_detected(self, engine):
+        """UT15: xp_cmdshell triggers SQLi rule (SQLi_014)."""
+        result = engine.evaluate("'; EXEC xp_cmdshell('dir') --")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_blind_sqli_function_detected(self, engine):
+        """UT16: SUBSTRING used for blind SQLi triggers SQLi rule (SQLi_015)."""
+        result = engine.evaluate("id=1 AND SUBSTRING(password,1,1)='a'")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_data_uri_xss_detected(self, engine):
+        """UT17: data:text/html URI triggers XSS rule (XSS_013)."""
+        result = engine.evaluate('<a href="data:text/html,<script>alert(1)</script>">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_vbscript_xss_detected(self, engine):
+        """UT18: vbscript: URI triggers XSS rule (XSS_014)."""
+        result = engine.evaluate('<a href="vbscript:msgbox(1)">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_srcdoc_xss_detected(self, engine):
+        """UT19: iframe srcdoc attribute triggers XSS rule (XSS_015)."""
+        result = engine.evaluate('<iframe srcdoc="<script>alert(1)</script>">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_php_stream_wrapper_detected(self, engine):
+        """UT20: php://filter stream wrapper triggers PATH rule (PATH_013)."""
+        result = engine.evaluate("page=php://filter/convert.base64-encode/resource=index.php")
+        assert result.matched is True
+        assert result.category == "PATH"
+
+    def test_ssh_key_path_detected(self, engine):
+        """UT21: .ssh/id_rsa path triggers PATH rule (PATH_014)."""
+        result = engine.evaluate("file=../../.ssh/id_rsa")
+        assert result.matched is True
+        assert result.category == "PATH"
+
+    def test_web_config_detected(self, engine):
+        """UT22: web.config path triggers PATH rule (PATH_015)."""
+        result = engine.evaluate("file=../web.config")
+        assert result.matched is True
+        assert result.category == "PATH"
+
+    def test_stacked_query_detected(self, engine):
+        """UT14: Semicolon-chained query triggers SQLi rule (SQLi_013)."""
+        result = engine.evaluate("id=1; DROP TABLE users")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_xp_cmdshell_detected(self, engine):
+        """UT15: xp_cmdshell triggers SQLi rule (SQLi_014)."""
+        result = engine.evaluate("'; EXEC xp_cmdshell('dir') --")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_blind_sqli_function_detected(self, engine):
+        """UT16: SUBSTRING used for blind SQLi triggers SQLi rule (SQLi_015)."""
+        result = engine.evaluate("id=1 AND SUBSTRING(password,1,1)='a'")
+        assert result.matched is True
+        assert result.category == "SQLi"
+
+    def test_data_uri_xss_detected(self, engine):
+        """UT17: data:text/html URI triggers XSS rule (XSS_013)."""
+        result = engine.evaluate('<a href="data:text/html,<script>alert(1)</script>">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_vbscript_xss_detected(self, engine):
+        """UT18: vbscript: URI triggers XSS rule (XSS_014)."""
+        result = engine.evaluate('<a href="vbscript:msgbox(1)">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_srcdoc_xss_detected(self, engine):
+        """UT19: iframe srcdoc attribute triggers XSS rule (XSS_015)."""
+        result = engine.evaluate('<iframe srcdoc="<script>alert(1)</script>">')
+        assert result.matched is True
+        assert result.category == "XSS"
+
+    def test_php_stream_wrapper_detected(self, engine):
+        """UT20: php://filter stream wrapper triggers PATH rule (PATH_013)."""
+        result = engine.evaluate("page=php://filter/convert.base64-encode/resource=index.php")
+        assert result.matched is True
+        assert result.category == "PATH"
+
+    def test_ssh_key_path_detected(self, engine):
+        """UT21: .ssh/id_rsa path triggers PATH rule (PATH_014)."""
+        result = engine.evaluate("file=../../.ssh/id_rsa")
+        assert result.matched is True
+        assert result.category == "PATH"
+
+    def test_web_config_detected(self, engine):
+        """UT22: web.config path triggers PATH rule (PATH_015)."""
+        result = engine.evaluate("file=../web.config")
+        assert result.matched is True
+        assert result.category == "PATH"
