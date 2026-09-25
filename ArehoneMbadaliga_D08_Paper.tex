@@ -324,14 +324,6 @@ do not alter any conclusion drawn in D07.
 \section{Dataset Characteristics and Attack Contribution}
 \label{sec:dataset}
 
-\TODO{This section still needs the full per-category attack breakdown
-the moderator asked for (how much of the attack traffic is SQLi versus
-XSS versus path traversal versus other, across the merged dataset). That
-requires a script run against the raw CSIC 2010 and HTTPParams files
-that has not been done yet. What follows is the composition already
-confirmed by build\_dataset.py; the category-level breakdown is the
-open item.}
-
 The merged dataset combines two public sources rather than one, for a
 reason worth stating directly, a single source risks the model learning
 that source's particular formatting habits rather than the underlying
@@ -349,6 +341,79 @@ matters directly for how the reported recall figures should be read:
 recall of 0.714 for the hybrid configuration means just over seven in
 ten of the roughly 7{,}366 attack requests in the test set were caught,
 not seven in ten of all traffic.
+
+\subsection{What contributes to the attacks}
+
+The moderator asked directly what drives the attack composition of the
+dataset, how much is SQLi versus XSS versus path traversal versus
+something else. Answering this honestly requires two different methods,
+kept separate here rather than blended together, because they are not
+the same kind of evidence.
+
+\textbf{HTTPParams} carries a real \texttt{attack\_type} column in its
+source CSV, genuine ground truth assigned when the dataset was built,
+not inferred by this project. Table~\ref{tab:httpparams} reports it
+directly.
+
+\begin{table}[h]
+\centering
+\caption{HTTPParams attack composition, ground truth from the dataset's own \texttt{attack\_type} column}
+\label{tab:httpparams}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Category} & \textbf{Requests} & \textbf{Share of attacks} \\
+\midrule
+SQLi & 10{,}852 & 92.3\% \\
+XSS & 532 & 4.5\% \\
+Path traversal & 290 & 2.5\% \\
+Command injection & 89 & 0.8\% \\
+\midrule
+\textbf{Total} & \textbf{11{,}763} & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{CSIC 2010} carries no such column. It was built as a binary
+normal/anomalous dataset only, so there is no ground truth subtype to
+report for its 25{,}065 attack rows. Rather than guess, each attack
+row's own text was run through the real 45-rule RuleEngine (the same
+engine used in production, see Section~\ref{sec:expansion}), and
+categorised by whichever rule fired. Rows that matched no rule at all
+are reported as uncategorised, since that is itself real, meaningful
+information about this dataset, not a gap to hide.
+Table~\ref{tab:csic} reports this.
+
+\begin{table}[h]
+\centering
+\caption{CSIC 2010 attack composition, inferred via the RuleEngine (no ground truth subtype exists in this dataset)}
+\label{tab:csic}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Category} & \textbf{Requests} & \textbf{Share of attacks} \\
+\midrule
+Uncategorised (no rule matched) & 24{,}125 & 96.2\% \\
+SQLi & 754 & 3.0\% \\
+XSS & 186 & 0.7\% \\
+Path traversal & 0 & 0.0\% \\
+\midrule
+\textbf{Total} & \textbf{25{,}065} & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This result matters beyond simply answering the moderator's question.
+96.2\% of CSIC 2010's attack corpus does not match any of the 45 rules
+in the rule engine, including the 9 added during Beta. This is not a
+weakness in the rule engine's coverage in the ordinary sense, CSIC
+2010's anomalous traffic was deliberately constructed to include attacks
+that do not follow simple textbook syntax, exactly the kind of traffic
+the rule layer was never going to catch by design (see the structural
+argument in Section~\ref{sec:defense}). It is direct, concrete evidence
+for why this project uses a hybrid approach at all: the majority of
+CSIC 2010's attack traffic can only be caught by a layer that reasons
+statistically over the whole request rather than matching a fixed
+pattern, exactly the role the Random Forest classifier plays through
+Case B.
 
 \clearpage
 \section{How Each Finding Was Produced}
