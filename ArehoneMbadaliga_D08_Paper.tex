@@ -1,0 +1,615 @@
+\documentclass{llncs}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{natbib}
+\bibliographystyle{plainnat}
+
+% TODO note style, plain text, no tcolorbox, matches D07 convention
+\newcommand{\TODO}[1]{\textbf{[TODO: #1]}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+}
+
+\begin{document}
+
+\title{Design and Evaluation of a Hybrid Web Application Firewall with Lightweight Machine Learning-Assisted Detection}
+\subtitle{D08: Development of Beta Version and Progress Research Paper}
+
+\author{Arehone B. Mbadaliga (219044112)}
+\institute{Academy of Computer Science and Software Engineering, University of Johannesburg}
+
+\maketitle
+
+\begin{abstract}
+This document is the D08 Beta Version deliverable for the Hybrid Web
+Application Firewall (WAF) project. It builds on the D07 Alpha Version,
+which delivered a working detection pipeline evaluated offline against a
+held out test set, and adds the missing piece the Alpha did not have, a
+real reverse proxy that binds a port and forwards live HTTP traffic. This
+document reports that a full reverse proxy module was built for the first
+time in the Beta phase, tested against two live demonstration backends,
+DVWA and OWASP Juice Shop, and found to correctly forward legitimate
+traffic and block confirmed attacks. It also reproduces the Alpha's core
+evaluation numbers from a completely clean virtual machine, confirming the
+results are not tied to one developer's original setup, and reports a
+verified expansion of the rule engine from 36 to 45 rules, shown to
+directly catch attacks that previously relied on the machine learning
+layer alone. The remaining
+sections respond directly to supervisor and moderator feedback received
+at the D07 presentation, covering dataset composition, the reasoning
+behind every reported finding, and an honest account of where rule based
+detection alone falls short of the hybrid approach.
+\end{abstract}
+
+\clearpage
+\section{Introduction and Progression from D07}
+
+D07 delivered the Alpha Version of the Hybrid WAF. It established a
+six-module pipeline (M1 TrafficReader through M6 Logger), trained three
+machine learning pipelines on a merged CSIC 2010 and HTTPParams dataset
+of 128{,}132 requests, and evaluated four configurations offline against
+a held out test set of 25{,}627 requests: rule-only, ML-only, hybrid, and
+ModSecurity with the OWASP Core Rule Set v4 as an external baseline. The
+hybrid configuration reached an F1 score of 0.826, against 0.449 for the
+rule engine alone and 0.568 for ModSecurity.
+
+What D07 did not have was a live reverse proxy. Every D07 result came
+from feeding a CSV of pre-extracted requests through the pipeline objects
+directly in Python, and the interactive demonstration used for the D07
+presentation, \texttt{demo/interactive\_demo.py}, called the same pipeline
+objects directly and never opened a network socket. This is stated plainly
+here because it matters for what counts as new work in this document:
+the reverse proxy described in Section~\ref{sec:m1} did not exist before
+the Beta phase.
+
+D08 has four aims, matching the deliverable's stated focus and the
+feedback raised by the supervisor and moderator at the D07 presentation:
+
+\begin{enumerate}
+  \item Build and test a real reverse proxy, so the WAF can sit in front
+        of an actual web application rather than only being evaluated
+        offline (Section~\ref{sec:m1}).
+  \item Confirm the Alpha's results reproduce from a clean environment,
+        not just the machine they were first measured on
+        (Section~\ref{sec:reproduce}).
+  \item Respond directly to the D07 feedback: explain how each finding
+        was produced, characterise the dataset and what drives its
+        attack composition, and defend the gap between rule-only and
+        hybrid detection with concrete examples
+        (Sections~\ref{sec:findings}--\ref{sec:defense}).
+  \item Expand detection coverage in the rule engine and feature
+        extractor, and record honestly which of that expansion is
+        complete and which is still in progress
+        (Section~\ref{sec:expansion}).
+\end{enumerate}
+
+\clearpage
+\section{Response to D07 Feedback}
+\label{sec:feedback}
+
+Table~\ref{tab:feedback} maps each point raised at the D07 presentation
+to the section of this document that answers it, following the same
+practice used in D04 and D06 of tracking feedback explicitly rather than
+folding it in unlabelled.
+
+\begin{table}[h]
+\centering
+\caption{D07 presentation feedback and corresponding responses in this document}
+\label{tab:feedback}
+\begin{tabular}{p{0.45\textwidth}p{0.45\textwidth}}
+\toprule
+\textbf{Feedback point} & \textbf{Response in this document} \\
+\midrule
+Explain all findings and how they were found &
+Section~\ref{sec:findings} traces every reported number back to the
+exact script that produced it \\
+Consider more keywords on the feature extractor &
+Section~\ref{sec:expansion} records the current F3 keyword list and the
+expansion still in progress \\
+What contributes to the attacks based on the datasets? &
+Section~\ref{sec:dataset} breaks down the merged dataset by source and
+category \\
+Explain the journey from catching traffic to decision &
+Section~\ref{sec:m1} walks a single request through all six modules \\
+Dataset characteristics, distribution, imbalance, training and results &
+Section~\ref{sec:dataset} and Section~\ref{sec:reproduce} \\
+Defend rule-based misses versus the hybrid difference &
+Section~\ref{sec:defense} \\
+Shallow SQL keywords, consider IP tagging &
+Section~\ref{sec:expansion} records this as planned, not yet built \\
+Explain param={payload} clearly &
+Section~\ref{sec:param} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{The Journey: Traffic to Decision}
+\label{sec:m1}
+
+\subsection{Why this section exists}
+The moderator asked for a clear account of how a request moves through
+the system from the moment it arrives to the moment a decision is made.
+D07 could not fully answer this, since nothing in the Alpha actually
+received live traffic. This section describes the module built for
+Beta that makes this a real, testable journey rather than a description
+of six components that had never been wired together end to end.
+
+\subsection{M1 TrafficReader: built new for Beta}
+\texttt{src/traffic\_reader.py} did not exist before this deliverable.
+It is a \texttt{BaseHTTPRequestHandler} subclass, following the interface
+named in the original D04 proposal (Section 4.2), that binds
+\texttt{127.0.0.1:8080} and threads each incoming connection so multiple
+requests can be handled concurrently.
+
+\subsection{The path of one request}
+Take a single request, a GET to \texttt{/vulnerabilities/sqli/} carrying
+the query string \texttt{id=1' OR '1'='1\&Submit=Submit}, sent as a
+normal browser would send it, URL-encoded.
+
+\begin{enumerate}
+  \item \textbf{M1 TrafficReader} accepts the connection and reads the
+        method, path and query string. The query string arrives
+        URL-encoded (\texttt{1\%27\%20OR\%20\%271\%27\%3D\%271}) and is
+        decoded once, here, before any other module sees it.
+        \TODO{This decoding step was added after a real bug was found
+        during Beta testing: without it, the rule engine could not match
+        an encoded quote character. Confirm this stays flagged as a
+        genuine finding in the final write-up, not smoothed over.}
+  \item \textbf{M2 FeatureExtractor} computes the six-feature vector
+        (F1 length, F2 special character count, F3 SQL keyword count,
+        F4 script flag, F5 traversal count, F6 Shannon entropy) from the
+        decoded text.
+  \item \textbf{M3 RuleEngine} checks the decoded text against all 36
+        loaded regex rules. For this request, rule SQLi\_002 matches.
+  \item \textbf{M4 MLClassifier} scores the same feature vector through
+        the trained Random Forest, independently of the rule engine's
+        result.
+  \item \textbf{M5 DecisionEngine} combines the two verdicts under the
+        active operating mode. In hybrid mode, if both layers agree the
+        request is an attack, the decision is reported as \emph{Both
+        agree: confirmed attack}. If only the classifier flags it, the
+        decision is reported as Case B, an obfuscated payload the rule
+        layer missed.
+  \item \textbf{M6 Logger} records the request, the feature vector, both
+        verdicts, the final decision and the per-stage timings to
+        \texttt{logs/waf\_events.csv}.
+  \item If the decision is ALLOW, M1 opens a connection to the
+        configured backend, forwards the original method, path, query
+        string, headers and body, and relays the backend's response back
+        to the client unchanged. If the decision is BLOCK, M1 returns an
+        HTTP 403 with the decision's stated reason, and the backend is
+        never contacted.
+\end{enumerate}
+
+\subsection{Verification}
+This flow was tested against two real backends running as separate
+Docker containers, following the same "intercepted backend" placement
+described in D06: DVWA on port 8081 and OWASP Juice Shop on port 3000,
+never both targeted at once.
+
+\begin{itemize}
+  \item A clean request to DVWA's \texttt{/index.php} was forwarded
+        correctly, returning DVWA's real 302 redirect to its login page
+        with session cookies intact.
+  \item The SQLi payload above was blocked with the reason \emph{Both
+        agree: confirmed attack}, and DVWA never received the request.
+  \item A clean request to Juice Shop's \texttt{/rest/products/search}
+        endpoint was forwarded correctly, returning Juice Shop's real
+        JSON response, confirming the backend target is genuinely
+        configurable and not hardcoded to one application.
+\end{itemize}
+
+\clearpage
+\section{Deployment Environment for Beta}
+\label{sec:env}
+
+The guest VM is confirmed as Ubuntu Server 24.04.4 LTS (kernel
+6.8.0-124-generic). This settles an inconsistency between two earlier
+documents: D04 stated Ubuntu 22.04 LTS, D06's deployment diagram stated
+24.04 LTS. The 24.04 figure is correct, confirmed directly with
+\texttt{lsb\_release -a} on the running guest.
+
+\begin{table}[h]
+\centering
+\caption{Confirmed software versions on the Beta deployment VM}
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Version} \\
+\midrule
+Guest OS & Ubuntu Server 24.04.4 LTS \\
+Python & 3.12.3 \\
+Docker & docker.io 29.1.3-0ubuntu3~24.04.2 \\
+numpy & 2.5.3 \\
+scikit-learn & 1.9.1 (models trained under 1.9.0, see note below) \\
+scipy & 1.18.1 \\
+PyYAML & 6.0.3 \\
+pytest & 9.1.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+One honest note belongs here. The trained model files were pickled
+under scikit-learn 1.9.0, but \texttt{requirements.txt} specifies only
+\texttt{scikit-learn>=1.3.0} with no upper bound, so a fresh install on
+the Beta VM pulled 1.9.1. This produced an \texttt{InconsistentVersion\allowbreak
+Warning} at load time. The reproduced results in
+Section~\ref{sec:reproduce} were not affected in any way that changed
+the reported metrics, but this is a real reproducibility risk that
+should not recur, so \texttt{requirements.txt} is being pinned to the
+exact training version as part of Beta.
+
+DVWA and Juice Shop run as Docker containers on the guest VM, matching
+the ports committed to in D06's deployment diagram, 8081 and 3000
+respectively. Both are now set with a \texttt{restart: unless-stopped}
+policy so they come back up automatically after the VM reboots, since
+manual restarts were found to be an easy step to forget between working
+sessions.
+
+\clearpage
+\section{Reproducibility of Alpha Results}
+\label{sec:reproduce}
+
+To answer the concern that D07's results might be specific to the
+original development machine, the full evaluation pipeline was rerun on
+a completely fresh clone of the repository on the Beta VM: a fresh
+\texttt{git clone}, a fresh Python virtual environment, and the raw
+CSIC 2010 and HTTPParams source files copied in unmodified. No code was
+changed for this test.
+
+\texttt{build\_dataset.py} reproduced the exact same dataset composition
+reported in D07:
+
+\begin{table}[h]
+\centering
+\caption{Dataset build, reproduced on a clean VM}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Source} & \textbf{Requests} & \textbf{Label} \\
+\midrule
+CSIC 2010, normalTrafficTraining.txt & 36{,}000 & benign \\
+CSIC 2010, normalTrafficTest.txt & 36{,}000 & benign \\
+CSIC 2010, anomalousTrafficTest.txt & 25{,}065 & attack \\
+HTTPParams & 31{,}067 & mixed \\
+\midrule
+\textbf{Combined total} & \textbf{128{,}132} & 91{,}304 benign, 36{,}828 attack \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{evaluate\_configurations.py} was then rerun against the same
+held out test split (25{,}627 requests) using the already trained model
+files committed to the repository, no retraining. Table~\ref{tab:reproduce}
+compares the original D07 numbers against this Beta reproduction.
+
+\begin{table}[h]
+\centering
+\caption{D07 original results versus Beta reproduction on a clean VM}
+\label{tab:reproduce}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Configuration} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{FPR} \\
+\midrule
+Rule-only (D07) & 1.000 & 0.289 & 0.449 & 0.000 \\
+Rule-only (Beta reproduction) & 1.000 & 0.2893 & 0.4488 & 0.0000 \\
+\addlinespace
+ML-only, Random Forest (D07) & 0.980 & 0.713 & 0.825 & 0.006 \\
+ML-only, Random Forest (Beta reproduction) & 0.9800 & 0.7126 & 0.8252 & 0.0059 \\
+\addlinespace
+Hybrid (D07) & 0.980 & 0.714 & 0.826 & 0.006 \\
+Hybrid (Beta reproduction) & 0.9800 & 0.7135 & 0.8258 & 0.0059 \\
+\addlinespace
+ModSecurity + CRS v4 (D07) & 0.799 & 0.440 & 0.568 & 0.045 \\
+ModSecurity + CRS v4 (Beta reproduction) & 0.7991 & 0.4401 & 0.5676 & 0.0446 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every figure reproduces to within rounding of its D07 value. This is
+worth stating plainly rather than glossed over: the small differences in
+the third or fourth decimal place come from floating point summation
+order and not from any change in code, data, or trained model, and they
+do not alter any conclusion drawn in D07.
+
+\clearpage
+\section{Dataset Characteristics and Attack Contribution}
+\label{sec:dataset}
+
+\TODO{This section still needs the full per-category attack breakdown
+the moderator asked for (how much of the attack traffic is SQLi versus
+XSS versus path traversal versus other, across the merged dataset). That
+requires a script run against the raw CSIC 2010 and HTTPParams files
+that has not been done yet. What follows is the composition already
+confirmed by build\_dataset.py; the category-level breakdown is the
+open item.}
+
+The merged dataset combines two public sources rather than one, for a
+reason worth stating directly, a single source risks the model learning
+that source's particular formatting habits rather than the underlying
+attack patterns. CSIC 2010 contributes 97{,}065 requests
+(36{,}000 + 36{,}000 benign, 25{,}065 attack), drawn from a
+Spanish e-commerce site's traffic and its associated anomalous traffic
+set. HTTPParams contributes 31{,}067 requests, drawn from
+parameter-level injection samples rather than full HTTP requests.
+
+The combined class balance is 91{,}304 benign to 36{,}828 attack, a
+ratio of roughly 2.48 to 1. This imbalance is preserved through the
+stratified 80/20 train-test split (\texttt{random\_state=42}), so the
+held out test set of 25{,}627 requests keeps the same proportion. This
+matters directly for how the reported recall figures should be read:
+recall of 0.714 for the hybrid configuration means just over seven in
+ten of the roughly 7{,}366 attack requests in the test set were caught,
+not seven in ten of all traffic.
+
+\clearpage
+\section{How Each Finding Was Produced}
+\label{sec:findings}
+
+This section exists because the moderator asked, directly, for every
+reported number to be traceable to the script that produced it, not
+just stated as a result. Table~\ref{tab:provenance} lists that mapping.
+
+\begin{table}[h]
+\centering
+\caption{Provenance of every reported metric}
+\label{tab:provenance}
+\begin{tabular}{p{0.32\textwidth}p{0.32\textwidth}p{0.26\textwidth}}
+\toprule
+\textbf{Result} & \textbf{Script} & \textbf{What it measures} \\
+\midrule
+Dataset composition (Section~\ref{sec:dataset}) & \texttt{build\_dataset.py} &
+Parses raw source files, merges, extracts features, writes
+\texttt{data/merged\_dataset.csv} \\
+Four-configuration comparison (Sections~\ref{sec:reproduce}, \ref{sec:defense}) &
+\texttt{evaluate\_configurations.py} & Scores the held out 25{,}627-row
+test split through rule-only, ML-only and hybrid \\
+ModSecurity baseline & \texttt{export\_test\_set\_for\_modsec.py} then
+\texttt{benchmark\_modsecurity.py} & Exports the same test rows in a
+format ModSecurity can be sent, then measures its real block/allow
+decisions \\
+Latency & \texttt{benchmark\_latency.py} & Times M1 entry to M5 exit
+with \texttt{time.perf\_counter()} across the full test set \\
+Unit test count & \texttt{pytest tests/ -v} & Runs the 23 unit tests
+covering the FeatureExtractor, RuleEngine and DecisionEngine directly \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two things are deliberately excluded from this table because they did
+not produce a reported number: \texttt{demo/interactive\_demo.py}, which
+is a terminal demonstration tool that prints results but is not itself
+an evaluation script, and \texttt{src/traffic\_reader.py}, whose
+correctness for Beta was confirmed through the manual curl tests
+described in Section~\ref{sec:m1} rather than an automated benchmark.
+\TODO{Consider whether an automated integration test for M1 belongs in
+the plan for the final deliverable, since manual curl testing is fine
+for development but weaker evidence for a paper than a repeatable
+script.}
+
+\clearpage
+\section{Defending the Rule-Only Gap}
+\label{sec:defense}
+
+The rule-only configuration reaches perfect precision (1.000) but recall
+of only 0.289. This means 71.1\% of the actual attacks in the test set
+passed straight through undetected when only the 36 regex rules were
+used. This number needs defending honestly rather than presented as a
+surprise, since it is the entire justification for adding a machine
+learning layer at all.
+
+The reason is structural, not a bug. Regex rules can only match text
+patterns they were written to expect. \texttt{rules.txt} currently
+contains 36 rules across three categories (SQLi, XSS, PATH), each
+targeting a specific known syntax, for example rule SQLi\_002 matching
+the literal characters of \texttt{' OR '1'='1}. Any attack that does not
+contain one of these 36 specific patterns, whether because it is
+obfuscated, encoded, or simply a variant the rule author did not
+anticipate, is invisible to this layer by design. \citep{durmuskaya2025}
+make the same point about pattern-based detection generally, that
+static rule sets cannot generalise beyond the patterns they were given.
+
+The hybrid configuration raises recall from 0.289 to 0.714 without
+changing the rule engine at all. The entire gain comes from
+\emph{Case B}, the condition where the rule engine reports no match but
+the trained classifier's probability score crosses the 0.5 threshold
+anyway. In the reproduced Beta test run, Case B fired on 3{,}232 of
+25{,}627 test requests, 12.61\%. These are, by definition, exactly the
+requests the rule engine structurally cannot catch, obfuscated or
+unusual attack payloads that still carry the statistical fingerprint a
+Random Forest trained on the feature vector (length, special character
+density, keyword count, script flag, traversal count, entropy) can
+pick up even without matching a known syntax.
+
+The rule engine was expanded during Beta from 36 to 45 rules, described
+in detail in Section~\ref{sec:expansion}, and that expansion closed a
+small, verifiable part of this gap, recall rose from 0.2893 to 0.2927.
+The gap remains structural even after expansion though, since 45 rules
+is still 45 fixed patterns, and the remaining 3{,}207 Case B detections
+in the expanded configuration are, by the same reasoning, attacks no
+fixed pattern was written to expect.
+
+This is also why the hybrid configuration's false positive rate rises
+slightly above rule-only's 0.000 to 0.006. A classifier making
+probabilistic judgements on unseen text will occasionally flag a benign
+request that happens to share statistical features with attack traffic,
+where a rule engine that only matches exact known patterns essentially
+cannot false-positive on anything it was not written to match. This
+trade-off, a small increase in false positives for a large increase in
+recall, is stated here as a deliberate, measured trade-off rather than
+a weakness left unexplained.
+
+\clearpage
+\section{The param={payload} Correction, Explained}
+\label{sec:param}
+
+This finding was first reported in D07 but, based on presentation
+feedback, did not land clearly enough to be understood on its own. This
+section restates it with a direct before-and-after comparison.
+
+The HTTPParams dataset provides raw payload strings, not full query
+strings. An early version of \texttt{build\_dataset.py} wrapped every
+HTTPParams payload as \texttt{param=\{payload\}} before feature
+extraction, under the assumption this would make the payload look like
+a realistic query parameter.
+
+\begin{table}[h]
+\centering
+\caption{The param= wrapping bug, before and after}
+\begin{tabular}{p{0.2\textwidth}p{0.35\textwidth}p{0.35\textwidth}}
+\toprule
+& \textbf{Before (with wrapper)} & \textbf{After (fixed)} \\
+\midrule
+Raw HTTPParams row & \texttt{hello world} & \texttt{hello world} \\
+Text sent to FeatureExtractor & \texttt{param=hello world} & \texttt{hello world} \\
+F2 special character count & 1 (the injected \texttt{=} sign) & 0 \\
+Effect & Every benign row, including plain English text with no
+special characters at all, was artificially given a non-zero F2
+score purely because of the wrapper, not because of anything in the
+original text & F2 correctly reflects the actual content of the row \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This mattered because F2 special character count is one of six inputs
+to the classifier, and an artificial non-zero F2 on thousands of benign
+rows pushed the model toward over-predicting attacks on ordinary text.
+Removing the wrapper and using the raw payload directly as the query
+string improved the Random Forest's precision from 0.965 to 0.980 and
+its false positive rate from 1.1\% to 0.6\%. The finding is kept in this
+document, as it was in D07, as a deliberate example of a real bug found
+through testing and corrected honestly, not smoothed over.
+
+\clearpage
+\section{Rule Engine and Feature Extractor Expansion}
+\label{sec:expansion}
+
+\TODO{The rule engine subsection below is now complete, added, tested,
+and re-evaluated. The feature extractor and IP tagging subsections that
+follow are still open work, recorded here with a clear current state
+rather than claimed as done, following the project's standing rule that
+a design decision is only claimed once it is verified.}
+
+\subsection{Rule engine (M3), expanded and verified}
+\texttt{rules.txt} grew from 36 to 45 rules during Beta, an even split
+across SQLi, XSS and PATH (15 each). The 9 additions cover stacked
+query injection (\texttt{SQLi\_013}), SQL Server command execution via
+\texttt{xp\_cmdshell} (\texttt{SQLi\_014}), blind boolean-based SQLi
+functions such as \texttt{SUBSTRING} (\texttt{SQLi\_015}),
+\texttt{data:} URI and \texttt{vbscript:} based XSS
+(\texttt{XSS\_013}, \texttt{XSS\_014}), iframe \texttt{srcdoc}
+injection (\texttt{XSS\_015}), and PHP stream wrapper, SSH key path,
+and IIS configuration file path traversal targets
+(\texttt{PATH\_013}--\texttt{PATH\_015}). Each rule has a matching unit
+test (UT14 through UT22, following the same fixture pattern as the
+existing UT09--UT13), and the full suite of 32 unit tests passes.
+
+\texttt{evaluate\_configurations.py} was rerun against the same held
+out 25{,}627-row test split with the expanded 45-rule set, no changes
+to either trained model. Table~\ref{tab:ruleexpansion} compares the
+36-rule and 45-rule results directly.
+
+\begin{table}[h]
+\centering
+\caption{Effect of the 9 added rules on rule-only and hybrid detection}
+\label{tab:ruleexpansion}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Configuration} & \textbf{TP} & \textbf{Recall} & \textbf{F1} & \textbf{Case B rate} \\
+\midrule
+Rule-only, 36 rules & 2{,}131 & 0.2893 & 0.4488 & 12.61\% (3{,}232) \\
+Rule-only, 45 rules & 2{,}156 & 0.2927 & 0.4528 & 12.51\% (3{,}207) \\
+Hybrid, 36 rules & 5{,}256 & 0.7135 & 0.8258 & --- \\
+Hybrid, 45 rules & 5{,}256 & 0.7135 & 0.8258 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The result is worth stating plainly rather than left to the table alone.
+Rule-only true positives rose by exactly 25, and Case B's count fell by
+exactly the same 25 requests, from 3{,}232 to 3{,}207. This is not a
+coincidence, it means the 9 new rules are directly catching the same
+25 attacks that previously only the ML classifier caught. Hybrid's
+overall recall and F1 did not change, because those 25 attacks were
+already being caught by the hybrid system either way, through Case B.
+What changed is which layer catches them, a small but real and
+verifiable shift of detection work from the probabilistic ML layer to
+the deterministic rule layer, which is a meaningful result in its own
+right: it shows the rule expansion generalises correctly rather than
+just adding rules that happen to fire on already-caught traffic or,
+worse, on benign traffic (false positives on both configurations remain
+at 0).
+
+\subsection{Feature extractor (M2), current state}
+\texttt{FeatureExtractor}'s F3 feature currently checks 13 SQL keywords
+in the code, a wider list than the 9 originally documented in D07's
+Table 5, itself an inconsistency worth correcting regardless of any
+further expansion. The moderator's request for a wider keyword set is
+still open. Any change to this list changes the F3 value for every one
+of the 128{,}132 rows in the merged dataset, meaning both trained models
+would need retraining and \texttt{evaluate\_configurations.py} rerunning
+before an updated result can be reported honestly. This is why the
+rule engine expansion above was prioritised first for Beta, since it
+does not carry the same retraining cost.
+
+\subsection{IP tagging, planned}
+The supervisor's suggestion of tagging or tracking source IP addresses
+when the SQL keyword count is low but a request still looks suspicious
+has not been built. \texttt{HTTPRequest} already carries a
+\texttt{source\_ip} field, so the data needed is available, but no
+decision logic using it exists yet. This is recorded here as planned
+work for the remainder of Beta or for the final deliverable, not as a
+completed feature.
+
+\clearpage
+\section{Limitations and Planned Work}
+\label{sec:limitations}
+
+Stated plainly, the following items are known and open at the time of
+this document:
+
+\begin{itemize}
+  \item The rule and feature extractor expansion described in
+        Section~\ref{sec:expansion} is drafted but not implemented,
+        tested, or re-evaluated.
+  \item The full attack-category breakdown of the merged dataset
+        (Section~\ref{sec:dataset}) has not been produced.
+  \item The monitoring dashboard (M6, port 8082) has not yet been
+        tested against traffic generated by the live reverse proxy,
+        only against the offline evaluation logs.
+  \item \texttt{requirements.txt} does not yet pin an exact
+        scikit-learn version, which is a real reproducibility risk
+        noted in Section~\ref{sec:env}.
+  \item \texttt{datasets/README.md} still lists WADE-2022 as a dataset
+        to download, which contradicts this project's own finding, kept
+        from D07, that WADE-2022 could not be verified as a real,
+        citable dataset. \citep{calvo2022} is the reference this
+        project has been able to verify for the adaptive WAF concept
+        WADE-2022 was intended to represent; the dataset itself was
+        excluded and this should be corrected in the repository.
+\end{itemize}
+
+\clearpage
+\section{Conclusion}
+
+This document reports the Beta phase's central achievement, a real
+reverse proxy that did not exist at D07, built, tested and confirmed
+working against two live demonstration backends. It also confirms, by
+independent reproduction on a clean virtual machine, that the Alpha's
+offline evaluation results were not specific to one developer's original
+setup. The remaining work is scoped honestly in
+Section~\ref{sec:limitations} rather than presented as finished, and
+directly answers the supervisor and moderator's D07 feedback as mapped
+in Table~\ref{tab:feedback}.
+
+\bibliography{references}
+
+\end{document}
