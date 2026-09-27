@@ -113,8 +113,8 @@ Explain all findings and how they were found &
 Section~\ref{sec:findings} traces every reported number back to the
 exact script that produced it \\
 Consider more keywords on the feature extractor &
-Section~\ref{sec:expansion} records the current F3 keyword list and the
-expansion still in progress \\
+Section~\ref{sec:expansion} reports the expansion attempt, tried,
+measured, and reverted after it regressed the deployed model \\
 What contributes to the attacks based on the datasets? &
 Section~\ref{sec:dataset} breaks down the merged dataset by source and
 category \\
@@ -613,17 +613,65 @@ just adding rules that happen to fire on already-caught traffic or,
 worse, on benign traffic (false positives on both configurations remain
 at 0).
 
-\subsection{Feature extractor (M2), current state}
-\texttt{FeatureExtractor}'s F3 feature currently checks 13 SQL keywords
-in the code, a wider list than the 9 originally documented in D07's
-Table 5, itself an inconsistency worth correcting regardless of any
-further expansion. The moderator's request for a wider keyword set is
-still open. Any change to this list changes the F3 value for every one
-of the 128{,}132 rows in the merged dataset, meaning both trained models
-would need retraining and \texttt{evaluate\_configurations.py} rerunning
-before an updated result can be reported honestly. This is why the
-rule engine expansion above was prioritised first for Beta, since it
-does not carry the same retraining cost.
+\subsection{Feature extractor (M2): the F3 keyword expansion was tried and reverted}
+\texttt{FeatureExtractor}'s F3 feature checks 9 SQL keywords in the
+code (SELECT, UNION, DROP, INSERT, UPDATE, DELETE, OR, WHERE, FROM),
+matching what D07's Table 5 already documented correctly.
+
+The moderator's request for a wider keyword set was tried during Beta,
+not left undone. 9 keywords were added, covering time-based blind SQLi
+(SLEEP, BENCHMARK, WAITFOR), schema enumeration
+(INFORMATION\_SCHEMA), string functions used in boolean-based blind
+SQLi (CONCAT, CAST, SUBSTRING, ASCII), and stored procedure execution
+(EXEC), bringing F3's list to 18 keywords. Because F3 feeds directly
+into both trained models, this required a full retrain:
+\texttt{build\_dataset.py} was rerun to recompute F3 across all
+128{,}132 rows, then \texttt{train\_models.py}, then
+\texttt{evaluate\_configurations.py}.
+
+The result was a measurable regression in the deployed model.
+Table~\ref{tab:f3attempt} compares the 9-keyword and 18-keyword
+versions, everything else held constant, same 45-rule engine, same
+test split.
+
+\begin{table}[h]
+\centering
+\caption{Effect of expanding F3 from 9 to 18 SQL keywords}
+\label{tab:f3attempt}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Configuration} & \textbf{TP} & \textbf{Recall} & \textbf{F1} & \textbf{Case B rate} \\
+\midrule
+ML-only (RF), 9 keywords & --- & 0.7126 & 0.8252 & --- \\
+ML-only (RF), 18 keywords & --- & 0.7111 & 0.8242 & --- \\
+Hybrid, 9 keywords & 5{,}256 & 0.7135 & 0.8258 & 12.51\% (3{,}207) \\
+Hybrid, 18 keywords & 5{,}245 & 0.7121 & 0.8248 & 12.47\% (3{,}196) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every metric moved in the same direction, worse, not noise. The custom
+Logistic Regression pipeline (Pipeline 1) and its sklearn validation
+pipeline (Pipeline 3) both improved slightly under the 18-keyword
+version and continued to track each other closely, confirming the
+from-scratch implementation stayed correct. Random Forest, the model
+actually deployed in the live proxy, did not. A plausible explanation:
+the 9 added keywords are individually rare across 128{,}132 rows, and
+summing them into F3 alongside the original common keywords (OR,
+WHERE) turns F3 into a noisier signal for a tree-based model to split
+on, rather than a sharper one. F2 (special character count) and F6
+(entropy) likely already captured part of what the new keywords would
+have added, making the expansion partially redundant rather than
+additive.
+
+Given this, the 9-keyword version was kept for the deployed Beta
+system, and the models, dataset, and evaluation results reported
+elsewhere in this document are all the 9-keyword, unregressed
+versions, confirmed identical to the results already reported before
+this experiment. This is recorded here as a genuine finding, not a
+gap: expanding a single summed feature is not free, it can measurably
+hurt a tree-based model even while it helps a linear one, and testing
+that rather than assuming it was worth doing.
 
 \subsection{IP tagging, planned}
 The supervisor's suggestion of tagging or tracking source IP addresses
@@ -642,11 +690,8 @@ Stated plainly, the following items are known and open at the time of
 this document:
 
 \begin{itemize}
-  \item The rule and feature extractor expansion described in
-        Section~\ref{sec:expansion} is drafted but not implemented,
-        tested, or re-evaluated.
-  \item The full attack-category breakdown of the merged dataset
-        (Section~\ref{sec:dataset}) has not been produced.
+  \item The IP tagging idea for shallow-keyword cases, described in
+        Section~\ref{sec:expansion}, remains unbuilt.
   \item The monitoring dashboard (M6, port 8082) has not yet been
         tested against traffic generated by the live reverse proxy,
         only against the offline evaluation logs.
