@@ -140,7 +140,7 @@ class WAFHandler(http.server.BaseHTTPRequestHandler):
     def _build_403(self, dec):
         body = f"403 Forbidden\n\nBlocked by Hybrid WAF.\nReason: {dec.reason}\n".encode()
         self.send_response(403)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -148,7 +148,7 @@ class WAFHandler(http.server.BaseHTTPRequestHandler):
     def _build_502(self):
         body = b"502 Bad Gateway\n\nBackend unreachable.\n"
         self.send_response(502)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
