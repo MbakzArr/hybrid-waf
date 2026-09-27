@@ -9,3 +9,7 @@ datasets/
 data/
 waf_alerts.log
 modsec_test_set.csv
+venv/
+waf_run.log
+modsecurity_results.csv
+backups/
