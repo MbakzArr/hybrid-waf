@@ -2,7 +2,7 @@
 # Mbadaliga, AB (219044112)
 
 server:
-  host: "127.0.0.1"
+  host: "0.0.0.0"
   port: 8080
   backend_url: "http://127.0.0.1:8081"  # DVWA default, override with --backend for Juice Shop
 
