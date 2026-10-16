@@ -23,9 +23,10 @@ them from this folder and writes data/merged_dataset.csv.
 - Split 80/20, stratified, random_state=42 (102,505 train and 25,627 test)
 
 ## Known issues
-- 259 CSIC attack rows have no usable text (only spaces, "/" or "/~"). The
-  attack in those requests was not in the part of the request that is kept.
-  augment_and_retrain.py drops the 215 that fall in the training part.
+- 259 CSIC attack rows have no usable text: the parser finds only spaces, "/"
+  or "/~" and no query or body. The four checked have ordinary headers. Why
+  CSIC labels them anomalous was not found out. augment_and_retrain.py drops
+  the 215 that fall in the training part.
 - Normal two-parameter and short requests are rare in both datasets. The
   synthetic normal requests in augment_and_retrain.py cover this.
 
