@@ -1,0 +1,34 @@
+
+Holdout set against http://localhost:8080  |  errors 0
+  attacks 20  normal 40
+  TP 17   FN 3   FP 24   TN 16
+  precision 0.415   recall 0.850   F1 0.557   FPR 0.600
+
+Mismatches:
+  MISSED         [attack] /files?name=%2Fetc%2Fgroup
+  MISSED         [attack] /ping?host=8.8.8.8%20%7C%20whoami
+  MISSED         [attack] /ping?host=localhost%20%26%26%20id
+  FALSE POSITIVE [legit] /bargains?maker=Nike&shade=black
+  FALSE POSITIVE [legit] /toys?kind=lego&take=20&skip=40
+  FALSE POSITIVE [legit] /weather?area=gauteng&regarding=rain
+  FALSE POSITIVE [legit] /discuss?post_id=9912&p=3
+  FALSE POSITIVE [legit] /preferences?pane=security&src=sms
+  FALSE POSITIVE [legit] /rest/v1/gizmos?p=2&rows=25
+  FALSE POSITIVE [legit] /shows?day_of=2026-12-24
+  FALSE POSITIVE [legit] /shows?place=Durban&genre=music
+  FALSE POSITIVE [legit] /papers?doc=annual-report.pdf
+  FALSE POSITIVE [legit] /pictures?pic_set=17&latest=1
+  FALSE POSITIVE [legit] /vacancies?lookup=data%20analyst&place=Pretoria
+  FALSE POSITIVE [legit] /hotels?adults=2&children=1&nights=3
+  FALSE POSITIVE [legit] /unsubscribe?sub=3382&code=9f8e7d
+  FALSE POSITIVE [legit] /rates?from=ZAR&to=USD
+  FALSE POSITIVE [legit] /?
+  FALSE POSITIVE [legit_hard] /search?remark=kindly%20update%20or%20cancel%20my%20booking
+  FALSE POSITIVE [legit_hard] /search?memo=select%20seat%2012A
+  FALSE POSITIVE [legit_hard] /search?surname=D%27Souza
+  FALSE POSITIVE [legit_hard] /search?label=Rock%20%26%20Roll%20%28live%29
+  FALSE POSITIVE [legit_hard] /search?words=delete%20this%20draft
+  FALSE POSITIVE [legit_hard] /search?info=open%20from%209%20to%205
+  FALSE POSITIVE [legit_hard] /search?ask=insert%20card%20now
+  FALSE POSITIVE [legit_hard] /search?memo=drop%20the%20keys%20at%20reception
+  FALSE POSITIVE [legit_hard] /search?ask=1%20or%202%20nights

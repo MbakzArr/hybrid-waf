@@ -1,0 +1,65 @@
+/home/waf/hybrid-waf/venv/lib/python3.12/site-packages/sklearn/base.py:525: InconsistentVersionWarning: Trying to unpickle estimator DecisionTreeClassifier from version 1.9.0 when using version 1.9.1. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+/home/waf/hybrid-waf/venv/lib/python3.12/site-packages/sklearn/base.py:525: InconsistentVersionWarning: Trying to unpickle estimator RandomForestClassifier from version 1.9.0 when using version 1.9.1. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+/home/waf/hybrid-waf/venv/lib/python3.12/site-packages/sklearn/base.py:525: InconsistentVersionWarning: Trying to unpickle estimator StandardScaler from version 1.9.0 when using version 1.9.1. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+Loading dataset...
+  train 102505  test 25627  (same split as train_models.py)
+  empty attack rows: 215 in train (dropped)  44 in test (kept)
+  synthetic normal requests added: 4000
+  sample: ['/  ', '/blog keyword=drop off point near me&limit=return or swap ', '/gallery term=1792 ']
+  new training set: 106290 rows (benign 77043  attack 29247)
+
+Training Random Forest (100 trees  depth 10  seed 42  n_jobs 1)...
+[RF] Training complete. Trees: 100
+[RF] Model saved to /home/waf/hybrid-waf/models/pipeline2_random_forest_aug.pkl
+
+Scoring the test set with the rule engine (once)...
+[INFO] RuleEngine: loaded 45 rules from '/home/waf/hybrid-waf/rules/rules.txt'
+
+================ OLD MODEL, original test set ================
+
+[old ml_only] TP=5249 FP=107 TN=18154 FN=2117
+[old ml_only] Accuracy=0.9132 Precision=0.9800 Recall=0.7126 F1=0.8252 FPR=0.0059
+
+[old hybrid] TP=5256 FP=107 TN=18154 FN=2110
+[old hybrid] Accuracy=0.9135 Precision=0.9800 Recall=0.7135 F1=0.8258 FPR=0.0059
+
+================ NEW MODEL, original test set ================
+
+[new ml_only] TP=5100 FP=114 TN=18147 FN=2266
+[new ml_only] Accuracy=0.9071 Precision=0.9781 Recall=0.6924 F1=0.8108 FPR=0.0062
+
+[new hybrid] TP=5118 FP=114 TN=18147 FN=2248
+[new hybrid] Accuracy=0.9078 Precision=0.9782 Recall=0.6948 F1=0.8125 FPR=0.0062
+
+---- same test set without its 44 empty attack rows (information only) ----
+
+[old, no empties ml_only] TP=5205 FP=107 TN=18154 FN=2117
+[old, no empties ml_only] Accuracy=0.9131 Precision=0.9799 Recall=0.7109 F1=0.8240 FPR=0.0059
+
+[old, no empties hybrid] TP=5212 FP=107 TN=18154 FN=2110
+[old, no empties hybrid] Accuracy=0.9133 Precision=0.9799 Recall=0.7118 F1=0.8246 FPR=0.0059
+
+[new, no empties ml_only] TP=5100 FP=114 TN=18147 FN=2222
+[new, no empties ml_only] Accuracy=0.9087 Precision=0.9781 Recall=0.6965 F1=0.8137 FPR=0.0062
+
+[new, no empties hybrid] TP=5118 FP=114 TN=18147 FN=2204
+[new, no empties hybrid] Accuracy=0.9094 Precision=0.9782 Recall=0.6990 F1=0.8154 FPR=0.0062
+
+---- direct probes (probability of attack, old -> new) ----
+  '/  '                                                   1.0000 -> 0.0268
+  '/products page=2&sort=price '                          0.9886 -> 0.8480
+  '/archive year=2025&month=7 '                           0.9603 -> 0.3851
+  '/search q=blue socks '                                 0.0820 -> 0.0540
+  "/item id=1' OR '1'='1 "                                1.0000 -> 1.0000
+  '/ id=CASE WHEN 1=1 THEN 1 ELSE 0 END '                 0.6801 -> 0.4729
+
+================ FIRST LIMIT ================
+hybrid F1 on original test set: old 0.8258  new 0.8125  (limit 0.80)  PASS
+Next: point config models.rf_model_path at models/pipeline2_random_forest_aug.pkl and run replay_attacks.py
+The other two limits (replay FPR <= 0.20  replay recall >= 0.90) are checked there.

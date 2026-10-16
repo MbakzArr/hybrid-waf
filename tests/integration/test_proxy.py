@@ -28,7 +28,8 @@ from logger import Logger
 
 RULES = os.path.join(ROOT, 'rules', 'rules.txt')
 MODELS = os.path.join(ROOT, 'models')
-HAVE_MODEL = os.path.exists(os.path.join(MODELS, 'pipeline2_random_forest.pkl'))
+MODEL_FILE = 'pipeline2_random_forest_aug.pkl'   # the model the proxy runs with (config/waf_config.yaml)
+HAVE_MODEL = os.path.exists(os.path.join(MODELS, MODEL_FILE))
 needs_model = pytest.mark.skipif(not HAVE_MODEL, reason="trained model not found")
 
 
@@ -76,7 +77,7 @@ class Proxy:
                              alert_file=str(tmp_path / "alerts.log"),
                              error_file=str(tmp_path / "errors.csv"))
         self.rule_engine = RuleEngine(rules)
-        rf = load_rf_model(MODELS) if use_model else None
+        rf = load_rf_model(MODELS, MODEL_FILE) if use_model else None
         WAFHandler.configure(FeatureExtractor(), self.rule_engine, rf,
                              DecisionEngine(mode=mode, threshold=0.5),
                              self.logger, f"http://127.0.0.1:{self.backend_port}")
@@ -190,7 +191,8 @@ def test_it07_logging_failure_does_not_stop_enforcement(make_proxy, monkeypatch)
     assert p.get("/login.php")[0] == 200
 
 
-CASE_B = "/?id=CASE%20WHEN%201=1%20THEN%201%20ELSE%200%20END"
+# No rule matches this one but the model scores it 0.97 in the live replay (Case B)
+CASE_B = "/vulnerabilities/sqli/?id=%27%20OR%20%27a%27%3D%27a&Submit=Submit"
 
 
 @needs_model

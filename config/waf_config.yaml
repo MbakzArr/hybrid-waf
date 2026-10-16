@@ -16,7 +16,7 @@ rules:
 
 models:
   lr_model_path: "models/pipeline1_logreg.pkl"   # not used by the live proxy
-  rf_model_path: "models/pipeline2_random_forest.pkl"
+  rf_model_path: "models/pipeline2_random_forest_aug.pkl"
 
 logging:
   log_file: "logs/waf_events.csv"

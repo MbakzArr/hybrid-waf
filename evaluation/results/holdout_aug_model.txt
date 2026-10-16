@@ -1,0 +1,17 @@
+
+Holdout set against http://localhost:8080  |  errors 0
+  attacks 20  normal 40
+  TP 17   FN 3   FP 7   TN 33
+  precision 0.708   recall 0.850   F1 0.773   FPR 0.175
+
+Mismatches:
+  MISSED         [attack] /files?name=%2Fetc%2Fgroup
+  MISSED         [attack] /ping?host=8.8.8.8%20%7C%20whoami
+  MISSED         [attack] /ping?host=localhost%20%26%26%20id
+  FALSE POSITIVE [legit] /bargains?maker=Nike&shade=black
+  FALSE POSITIVE [legit] /discuss?post_id=9912&p=3
+  FALSE POSITIVE [legit] /rest/v1/gizmos?p=2&rows=25
+  FALSE POSITIVE [legit] /papers?doc=annual-report.pdf
+  FALSE POSITIVE [legit] /pictures?pic_set=17&latest=1
+  FALSE POSITIVE [legit] /rates?from=ZAR&to=USD
+  FALSE POSITIVE [legit_hard] /search?surname=D%27Souza

