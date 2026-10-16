@@ -7,7 +7,7 @@ Mbadaliga, AB (219044112)
 Run from project root:
     python3 src/dashboard.py
 
-Then open: http://localhost:8081
+Then open: http://localhost:8082
 
 Two tabs:
   Overview    (UC07) - live metric cards and block analysis charts
@@ -24,8 +24,8 @@ _here = os.path.dirname(os.path.abspath(__file__))
 _root = _here if os.path.exists(os.path.join(_here, 'logs')) \
         else os.path.dirname(_here)
 
-DASHBOARD_PORT = 8081
-LOG_FILE = os.path.join(_root, 'logs', 'detection_log.csv')
+DASHBOARD_PORT = 8082
+LOG_FILE = os.path.join(_root, 'logs', 'waf_events.csv')
 
 
 def read_rows(log_path: str) -> list:
@@ -227,7 +227,7 @@ border-radius:6px;padding:11px;font-size:.86em;margin-top:6px;line-height:1.5;}
 </div>
 <div class="status">
   <div><span>Mode:</span><strong id="s-mode">hybrid</strong></div>
-  <div><span>Pipeline:</span><strong>lr</strong></div>
+  <div><span>Pipeline:</span><strong>rf</strong></div>
   <div><span>Threshold:</span><strong>0.5</strong></div>
   <div><span>Log rows:</span><strong id="s-rows">0</strong></div>
 </div>
