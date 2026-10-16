@@ -7,13 +7,11 @@ Extends the pipeline evaluation to two more configurations: rule_only
 and hybrid, using the REAL RuleEngine and DecisionEngine from src/,
 and the trained Pipeline 2 (Random Forest) model as the ML signal.
 
-ml_only is NOT recomputed here. Pipeline2_RandomForest's row in
-evaluation/results/pipeline_metrics.csv already IS the ml_only
-configuration: DecisionEngine._ml_only() blocks when
-mr.probability >= threshold, which is exactly the same >= 0.5 check
-train_models.py already applied to Pipeline 2's predict_proba output.
-Recomputing it here would just reproduce the same numbers a second
-time, so this script reads that row straight from the file instead.
+ml_only is computed here from the same probabilities: the model blocks
+when its probability is 0.5 or higher, which is the same check
+DecisionEngine._ml_only() makes. For the default model this gives the
+same numbers as the Pipeline2_RandomForest row in
+evaluation/results/pipeline_metrics.csv.
 
 Random Forest (Pipeline 2) is used as "the" ML signal for rule_only
 and hybrid scoring because it was the strongest performer in the
@@ -26,6 +24,10 @@ models/pipeline2_random_forest.pkl and evaluation/results/pipeline_metrics.csv:
     cd ~/HYP_Project/hybrid-waf
     python3 evaluate_configurations.py
 
+To score a different model without overwriting the default results:
+    python3 evaluate_configurations.py --model models/pipeline2_random_forest_aug.pkl \
+        --out evaluation/results/four_configuration_comparison_aug.csv
+
 Output:
     evaluation/results/four_configuration_comparison.csv
     (rule_only, ml_only, hybrid rows populated; modsecurity_crs_v4
@@ -35,6 +37,7 @@ import os
 import sys
 import csv
 import pickle
+import argparse
 
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -101,8 +104,14 @@ def evaluate(name, y_true, y_pred):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default=RF_MODEL_PATH, help="Random Forest .pkl to use")
+    ap.add_argument("--out", default=OUTPUT_PATH, help="where to write the results csv")
+    ap.add_argument("--data", default=DATA_PATH, help="merged dataset csv")
+    args = ap.parse_args()
+
     print("Loading merged dataset (with raw text)...")
-    raw_texts, X, y = load_dataset_with_text(DATA_PATH)
+    raw_texts, X, y = load_dataset_with_text(args.data)
     print(f"  Loaded {len(y)} rows.")
 
     # Identical split to train_models.py: same random_state, same
@@ -119,8 +128,8 @@ def main():
     rule_engine = RuleEngine(RULES_PATH)
     print(f"  {rule_engine.get_rule_count()} rules loaded")
 
-    print(f"Loading trained Random Forest from {RF_MODEL_PATH}...")
-    with open(RF_MODEL_PATH, "rb") as f:
+    print(f"Loading trained Random Forest from {args.model}...")
+    with open(args.model, "rb") as f:
         rf_data = pickle.load(f)
     rf_model = RandomForestModel()
     rf_model.model = rf_data["model"]
@@ -132,6 +141,7 @@ def main():
 
     preds_rule_only = []
     preds_hybrid = []
+    preds_ml_only = []
     case_b_count = 0  # rule missed it, ML caught it, this project's core contribution
 
     print("Scoring test set through RuleEngine + DecisionEngine...")
@@ -149,6 +159,7 @@ def main():
 
         preds_rule_only.append(1 if d_rule.is_block() else 0)
         preds_hybrid.append(1 if d_hybrid.is_block() else 0)
+        preds_ml_only.append(1 if ml_probability >= 0.5 else 0)
 
         if "Case B" in d_hybrid.reason:
             case_b_count += 1
@@ -162,32 +173,7 @@ def main():
     all_metrics = []
     all_metrics.append(evaluate("rule_only", y_test, preds_rule_only))
 
-    ml_only_row = None
-    if os.path.exists(EXISTING_METRICS_PATH):
-        with open(EXISTING_METRICS_PATH, newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                if row["pipeline"] == "Pipeline2_RandomForest":
-                    ml_only_row = {
-                        "pipeline": "ml_only",
-                        "accuracy": float(row["accuracy"]),
-                        "precision": float(row["precision"]),
-                        "recall": float(row["recall"]),
-                        "f1": float(row["f1"]),
-                        "fpr": float(row["fpr"]),
-                        "tp": int(row["tp"]), "fp": int(row["fp"]),
-                        "tn": int(row["tn"]), "fn": int(row["fn"]),
-                    }
-    if ml_only_row is None:
-        print(f"WARNING: could not find Pipeline2_RandomForest row in "
-              f"{EXISTING_METRICS_PATH}. Run train_models.py first. "
-              "ml_only row will be left blank.")
-        ml_only_row = {"pipeline": "ml_only", "accuracy": "", "precision": "",
-                        "recall": "", "f1": "", "fpr": "", "tp": "", "fp": "",
-                        "tn": "", "fn": ""}
-    print(f"\n[ml_only] (reused from Pipeline2_RandomForest, not recomputed) "
-          f"Precision={ml_only_row['precision']} Recall={ml_only_row['recall']} "
-          f"F1={ml_only_row['f1']} FPR={ml_only_row['fpr']}")
-    all_metrics.append(ml_only_row)
+    all_metrics.append(evaluate("ml_only", y_test, preds_ml_only))
 
     all_metrics.append(evaluate("hybrid", y_test, preds_hybrid))
 
@@ -196,8 +182,8 @@ def main():
         "recall": "", "f1": "", "fpr": "", "tp": "", "fp": "", "tn": "", "fn": "",
     })
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w", newline="", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "pipeline", "accuracy", "precision", "recall", "f1", "fpr",
             "tp", "fp", "tn", "fn",
@@ -206,7 +192,7 @@ def main():
         for row in all_metrics:
             writer.writerow(row)
 
-    print(f"\nDone. Four-configuration comparison written to {OUTPUT_PATH}")
+    print(f"\nDone. Four-configuration comparison written to {args.out}")
     print("modsecurity_crs_v4 row left blank, that baseline still needs to be "
           "stood up separately on the VM.")
 

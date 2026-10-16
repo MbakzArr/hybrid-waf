@@ -24,7 +24,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default=os.path.join(ROOT, "config", "config.yaml"))
+    parser.add_argument("--config", default=os.path.join(ROOT, "config", "waf_config.yaml"))
     parser.add_argument("--backend", default=None,
                          help="Override backend_url, e.g. http://127.0.0.1:8081")
     parser.add_argument("--mode", default=None,
@@ -67,7 +67,7 @@ def main():
     print(f"  mode        : {mode}")
     print(f"  threshold   : {threshold}")
     print(f"  rules       : {len(rule_engine.rules)} loaded from {rules_file}")
-    print(f"  ML model    : {'pipeline2_random_forest' if rf_model else 'UNAVAILABLE'}")
+    print(f"  ML model    : {rf_file if rf_model else 'UNAVAILABLE'}")
     print(f"  backend_url : {backend_url}")
     print(f"  latency     : warn above {latency_budget} ms per request")
 

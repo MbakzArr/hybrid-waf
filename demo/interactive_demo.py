@@ -18,7 +18,8 @@ Commands:
 
 D07 UPDATE: the entropy-based stub used at D05/D06 has been replaced
 with the real trained Pipeline 2 (Random Forest) model, loaded from
-models/pipeline2_random_forest.pkl. Random Forest was chosen because
+models/pipeline2_random_forest_aug.pkl (the same model the live proxy uses).
+Random Forest was chosen because
 it was the strongest performer in the pipeline comparison (see
 evaluation/results/pipeline_metrics.csv). If that model file is
 missing, the demo falls back to the old stub and says so clearly,
@@ -85,6 +86,9 @@ def ml_predict_rf(fv: FeatureVector, rf_model) -> MLResult:
     return MLResult(probability=round(proba, 4), pipeline="pipeline2_random_forest")
 
 
+MODEL_FILE = "pipeline2_random_forest_aug.pkl"   # same file as config/waf_config.yaml
+
+
 def load_rf_model(models_dir):
     """Returns a loaded RandomForestModel, or None if unavailable.
     Prints the real reason on failure instead of silently falling back,
@@ -93,7 +97,7 @@ def load_rf_model(models_dir):
         print(f"\n{YELLOW}[WARN] numpy or sklearn import failed, "
               f"cannot load trained model.{RESET}\n")
         return None
-    path = os.path.join(models_dir, "pipeline2_random_forest.pkl")
+    path = os.path.join(models_dir, MODEL_FILE)
     if not os.path.exists(path):
         print(f"\n{YELLOW}[WARN] Model file does not exist at: {path}{RESET}\n")
         return None
@@ -190,11 +194,11 @@ def main():
 
     rf_model = load_rf_model(MODELS_DIR)
     if rf_model is not None:
-        ml_source = "pipeline2_random_forest (trained)"
+        ml_source = f"{MODEL_FILE} (trained)"
     else:
         ml_source = "entropy_stub (FALLBACK - run train_models.py for real scoring)"
         print(f"\n{YELLOW}[WARN] Trained model not found at "
-              f"{MODELS_DIR}/pipeline2_random_forest.pkl{RESET}")
+              f"{MODELS_DIR}/{MODEL_FILE}{RESET}")
         print(f"{YELLOW}       Falling back to the entropy stub. "
               f"Run train_models.py to get real scoring.{RESET}\n")
 

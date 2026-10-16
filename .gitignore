@@ -14,3 +14,4 @@ waf_run.log
 modsecurity_results.csv
 backups/
 logs/*.log
+dashboard_run.log

@@ -20,6 +20,11 @@ models/pipeline2_random_forest.pkl:
     cd ~/HYP_Project/hybrid-waf
     python3 benchmark_latency.py
 
+To time a different model (for example the retrained one) without
+overwriting the default results:
+    python3 benchmark_latency.py --model models/pipeline2_random_forest_aug.pkl \
+        --out evaluation/results/latency_benchmark_aug.csv
+
 Output:
     evaluation/results/latency_benchmark.csv
     (mean, median, 95th percentile in milliseconds, for the rule
@@ -30,6 +35,7 @@ import os
 import sys
 import csv
 import time
+import argparse
 import pickle
 import statistics
 
@@ -81,8 +87,14 @@ def percentile(data, pct):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default=RF_MODEL_PATH, help="Random Forest .pkl to use")
+    ap.add_argument("--out", default=OUTPUT_PATH, help="where to write the results csv")
+    ap.add_argument("--data", default=DATA_PATH, help="merged dataset csv")
+    args = ap.parse_args()
+
     print("Loading merged dataset (with raw text)...")
-    raw_texts, X, y = load_dataset_with_text(DATA_PATH)
+    raw_texts, X, y = load_dataset_with_text(args.data)
     print(f"  Loaded {len(y)} rows.")
 
     # Identical split to every other evaluation script in this repo.
@@ -97,8 +109,8 @@ def main():
     rule_engine = RuleEngine(RULES_PATH)
     print(f"  {rule_engine.get_rule_count()} rules loaded")
 
-    print(f"Loading trained Random Forest from {RF_MODEL_PATH}...")
-    with open(RF_MODEL_PATH, "rb") as f:
+    print(f"Loading trained Random Forest from {args.model}...")
+    with open(args.model, "rb") as f:
         rf_data = pickle.load(f)
     rf_model = RandomForestModel()
     rf_model.model = rf_data["model"]
@@ -152,8 +164,8 @@ def main():
         stats_row("Full pipeline (M2-M5)", total_times),
     ]
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w", newline="", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "stage", "mean_ms", "median_ms", "p95_ms", "min_ms", "max_ms",
         ])
@@ -168,7 +180,7 @@ def main():
               f"{row['median_ms']:>8.3f} {row['p95_ms']:>10.3f} "
               f"{row['min_ms']:>8.3f} {row['max_ms']:>8.3f}")
 
-    print(f"\nDone. Latency benchmark written to {OUTPUT_PATH}")
+    print(f"\nDone. Latency benchmark written to {args.out}")
 
 
 if __name__ == "__main__":
