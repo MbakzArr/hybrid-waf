@@ -35,13 +35,13 @@ except ImportError:
     NUMPY_AVAILABLE = False
 
 
-def load_rf_model(models_dir):
+def load_rf_model(models_dir, model_file="pipeline2_random_forest.pkl"):
     """Same loading logic as demo/interactive_demo.py, kept identical
     on purpose so the demo and the live proxy trust the same file in
     the same format."""
     if not NUMPY_AVAILABLE:
         return None
-    path = os.path.join(models_dir, "pipeline2_random_forest.pkl")
+    path = os.path.join(models_dir, model_file)
     if not os.path.exists(path):
         return None
     try:
@@ -80,19 +80,36 @@ class WAFHandler(http.server.BaseHTTPRequestHandler):
     decision_engine = None
     logger = None
     backend_url = None
+    latency_budget_ms = None   # NFR01, warn when one request goes over
 
     @classmethod
     def configure(cls, extractor, rule_engine, rf_model, decision_engine,
-                  logger, backend_url):
+                  logger, backend_url, latency_budget_ms=None):
         cls.extractor = extractor
         cls.rule_engine = rule_engine
         cls.rf_model = rf_model
         cls.decision_engine = decision_engine
         cls.logger = logger
         cls.backend_url = backend_url
+        cls.latency_budget_ms = latency_budget_ms
 
     def log_message(self, fmt, *args):
         pass  # M6 Logger handles this, not stderr
+
+    def send_error(self, code, message=None, explain=None):
+        """
+        Called by the base class for malformed or unsupported requests.
+        Log it first (NFR03), then send the normal error response. The
+        server keeps running either way.
+        """
+        try:
+            self.logger.log_error(
+                self.client_address[0], getattr(self, "command", ""),
+                getattr(self, "path", ""),
+                f"HTTP {code} {message or ''}".strip())
+        except Exception as e:
+            print(f"[WARN] could not log request error: {e}")
+        super().send_error(code, message, explain)
 
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -130,7 +147,17 @@ class WAFHandler(http.server.BaseHTTPRequestHandler):
         timings = {"extract": t_extract, "rule": t_rule, "ml": t_ml,
                    "decide": t_decide, "total": time.perf_counter() - t_start}
 
-        self.logger.log_event(req, dec, rr, ml, feature_vector=fv, timings=timings)
+        # A failed log write must not stop the decision being enforced.
+        try:
+            self.logger.log_event(req, dec, rr, ml, feature_vector=fv,
+                                  timings=timings)
+        except Exception as e:
+            print(f"[WARN] could not write event log: {e}")
+
+        total_ms = timings["total"] * 1000
+        if self.latency_budget_ms and total_ms > self.latency_budget_ms:
+            print(f"[WARN] request took {total_ms:.1f} ms, over the "
+                  f"{self.latency_budget_ms} ms budget")
 
         if dec.is_block():
             self._build_403(dec)
@@ -169,7 +196,12 @@ class WAFHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(resp_body)))
             self.end_headers()
             self.wfile.write(resp_body)
-        except Exception:
+        except Exception as e:
+            try:
+                self.logger.log_error(self.client_address[0], method,
+                                      parsed.path, f"Backend failure: {e}")
+            except Exception as log_err:
+                print(f"[WARN] could not log backend failure: {log_err}")
             self._build_502()
         finally:
             conn.close()

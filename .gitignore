@@ -13,3 +13,4 @@ venv/
 waf_run.log
 modsecurity_results.csv
 backups/
+logs/*.log

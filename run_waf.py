@@ -39,19 +39,29 @@ def main():
     backend_url = args.backend or cfg["server"]["backend_url"]
     mode = args.mode or cfg["detection"]["mode"]
     threshold = cfg["detection"]["threshold"]
+    pipeline = cfg["detection"].get("pipeline", "rf")
+    if pipeline != "rf":
+        sys.exit(f"pipeline '{pipeline}' is not supported by the live proxy. "
+                 "Only 'rf' (Random Forest) is deployed. The custom logistic "
+                 "regression is used for validation only.")
     rules_file = os.path.join(ROOT, cfg["rules"]["file"])
     log_file = os.path.join(ROOT, cfg["logging"]["log_file"])
-    models_dir = os.path.join(ROOT, "models")
+    alert_file = os.path.join(ROOT, cfg["logging"].get("alert_file", "logs/waf_alerts.log"))
+    error_file = os.path.join(ROOT, cfg["logging"].get("error_file", "logs/waf_errors.csv"))
+    rf_path = os.path.join(ROOT, cfg["models"]["rf_model_path"])
+    models_dir, rf_file = os.path.split(rf_path)
+    latency_budget = cfg.get("performance", {}).get("latency_budget_ms")
 
     extractor = FeatureExtractor()
     rule_engine = RuleEngine(rules_file)
-    rf_model = load_rf_model(models_dir)
+    rf_model = load_rf_model(models_dir, rf_file)
     if rf_model is None:
         print("[WARN] Random Forest model not loaded, ML score will be 0.0 for every request.")
     decision_engine = DecisionEngine(mode=mode, threshold=threshold)
-    logger = Logger(log_file=log_file)
+    logger = Logger(log_file=log_file, alert_file=alert_file, error_file=error_file)
 
-    WAFHandler.configure(extractor, rule_engine, rf_model, decision_engine, logger, backend_url)
+    WAFHandler.configure(extractor, rule_engine, rf_model, decision_engine,
+                         logger, backend_url, latency_budget)
 
     print(f"Hybrid WAF listening on {host}:{port}")
     print(f"  mode        : {mode}")
@@ -59,6 +69,7 @@ def main():
     print(f"  rules       : {len(rule_engine.rules)} loaded from {rules_file}")
     print(f"  ML model    : {'pipeline2_random_forest' if rf_model else 'UNAVAILABLE'}")
     print(f"  backend_url : {backend_url}")
+    print(f"  latency     : warn above {latency_budget} ms per request")
 
     server = ThreadingHTTPServer((host, port), WAFHandler)
     try:

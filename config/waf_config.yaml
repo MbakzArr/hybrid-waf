@@ -9,18 +9,19 @@ server:
 detection:
   mode: "hybrid"          # rule_only | ml_only | hybrid
   threshold: 0.5          # ML probability cutoff
-  pipeline: "rf"          # lr (Pipeline 1) | rf (Pipeline 2)
+  pipeline: "rf"          # only rf is deployed, run_waf.py refuses anything else
 
 rules:
   file: "rules/rules.txt"
 
 models:
-  lr_model_path: "models/pipeline1_logreg.pkl"
+  lr_model_path: "models/pipeline1_logreg.pkl"   # not used by the live proxy
   rf_model_path: "models/pipeline2_random_forest.pkl"
 
 logging:
   log_file: "logs/waf_events.csv"
   alert_file: "logs/waf_alerts.log"
+  error_file: "logs/waf_errors.csv"    # malformed requests and backend failures
 
 performance:
-  latency_budget_ms: 10   # NFR01: max added latency per request
+  latency_budget_ms: 10   # NFR01: a warning is printed when one request goes over
